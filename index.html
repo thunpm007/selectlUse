@@ -198,6 +198,12 @@ button.ghost{background:transparent}
 #pinBtn .dot{width:8px;height:8px;border-radius:50%;background:var(--dimmer);flex-shrink:0;transition:.15s}
 #pinBtn.on{border-color:var(--water)}
 #pinBtn.on .dot{background:var(--water);box-shadow:0 0 6px var(--water)}
+#compassBtn{
+  top:60px;left:12px;width:44px;height:44px;padding:0;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+}
+#compassBtn:hover{background:rgba(28,38,44,.97)}
+#compassIcon{transition:transform .25s ease-out}
 .ctl-t{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.15em;
        text-transform:uppercase;color:var(--dimmer);margin-bottom:7px}
 .seg{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden;margin-bottom:11px}
@@ -342,6 +348,15 @@ tr.on .tnum{background:var(--water)}
       <span id="pinBtnLabel">ปักหมุดบนแผนที่</span>
     </button>
 
+    <button class="mapctl" id="compassBtn" type="button" title="คลิกเพื่อหันกลับทิศเหนือ">
+      <svg id="compassIcon" width="26" height="26" viewBox="0 0 30 30">
+        <circle cx="15" cy="15" r="13" fill="none" stroke="#2B383F" stroke-width="1.4"/>
+        <path d="M15 4 L19 16 L15 13 L11 16 Z" fill="#D4664A"/>
+        <path d="M15 26 L19 16 L15 19 L11 16 Z" fill="#5F6D68"/>
+        <text x="15" y="3" text-anchor="middle" font-size="6.5" font-family="IBM Plex Mono" font-weight="600" fill="#8A968F">N</text>
+      </svg>
+    </button>
+
     <div class="mapctl" id="layerCtl">
       <div class="ctl-t">แผนที่ฐาน</div>
       <div class="seg" id="baseSeg">
@@ -353,6 +368,7 @@ tr.on .tnum{background:var(--water)}
       <label class="tog"><input type="checkbox" id="tgHill" checked> เงาภูเขา</label>
       <label class="tog"><input type="checkbox" id="tg3d"> ภูมิประเทศ 3 มิติ</label>
       <label class="tog"><input type="checkbox" id="tgPoi" checked> โรงเรียน / สถานพยาบาล</label>
+      <label class="tog"><input type="checkbox" id="tgFlood"> พื้นที่น้ำท่วมซ้ำซาก (GISTDA)</label>
       <label class="tog"><input type="checkbox" id="tgAll"> วงรัศมีทุกแปลง</label>
       <div class="ctl-t" style="margin-top:10px">รัศมี (กม.)</div>
       <div class="rads" id="radBtns">
@@ -397,6 +413,11 @@ const RINGS      = [[1000,16],[2500,12]];    // [radius m, n samples]
 const TRANSECT   = {len:3000, n:31};
 const RADII      = [15,30,50];
 
+// GISTDA — พื้นที่น้ำท่วมซ้ำซาก 2005–2016 (มาตราส่วน 1:50,000) จาก Open Data GISTDA ไม่ต้องใช้ API key
+const GISTDA_FLOOD_QUERY = 'https://gistdaportal.gistda.or.th/data/rest/services/FL_Flood/FL_RepeatedFlooding_GISTDA_50k_Y2005_Y2016/FeatureServer/0/query';
+const GISTDA_FLOOD_TILES = 'https://gistdaportal.gistda.or.th/data/rest/services/FL_Flood/FL_RepeatedFlooding_GISTDA_50k_Y2005_Y2016/MapServer/tile/{z}/{y}/{x}';
+const GISTDA_FLOOD_TOTAL_YEARS = 12; // ปีที่มีข้อมูลครอบคลุม (2005–2016)
+
 const state = {
   parcels: [], seq: 0, active: null,
   radii: new Set(RADII), showAll:false, showPoi:true,
@@ -416,6 +437,8 @@ const style = {
          tileSize:256,maxzoom:17,attribution:'© OpenTopoMap (CC-BY-SA)'},
     dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
          tileSize:256,maxzoom:14,encoding:'terrarium',attribution:'Terrain: Mapzen / AWS Open Data'},
+    floodhist:{type:'raster',tiles:[GISTDA_FLOOD_TILES],tileSize:256,maxzoom:19,
+         attribution:'พื้นที่น้ำท่วมซ้ำซาก 2005–2016: GISTDA'},
     rings:{type:'geojson',data:fc([])},
     flow:{type:'geojson',data:fc([])}
   },
@@ -425,6 +448,7 @@ const style = {
     {id:'l-street',type:'raster',source:'street',layout:{visibility:'none'}},
     {id:'l-hill',type:'hillshade',source:'dem',
      paint:{'hillshade-exaggeration':.42,'hillshade-shadow-color':'#08121A','hillshade-highlight-color':'#E8E2CE','hillshade-accent-color':'#1B2A2E'}},
+    {id:'l-floodhist',type:'raster',source:'floodhist',layout:{visibility:'none'},paint:{'raster-opacity':.65}},
     {id:'l-ringfill',type:'fill',source:'rings',
      paint:{'fill-color':'#3FA9BC','fill-opacity':['interpolate',['linear'],['get','r'],15,.09,50,.03]}},
     {id:'l-ringline',type:'line',source:'rings',
@@ -458,6 +482,9 @@ $('#pinBtn').onclick=()=>{
   $('#pinBtnLabel').textContent=state.pinMode?'คลิกบนแผนที่เพื่อปักหมุด (กดอีกครั้งเพื่อยกเลิก)':'ปักหมุดบนแผนที่';
   map.getCanvas().style.cursor=state.pinMode?'crosshair':'';
 };
+
+$('#compassBtn').onclick=()=>map.easeTo({bearing:0,duration:450});
+map.on('rotate',()=>{ $('#compassIcon').style.transform=`rotate(${-map.getBearing()}deg)`; });
 
 /* ══════════════ HELPERS ══════════════ */
 function fc(f){return {type:'FeatureCollection',features:f}}
@@ -672,9 +699,39 @@ out center 1200;`;
   render();
 }
 
+/* ══════════════ น้ำท่วมซ้ำซาก (GISTDA) ══════════════ */
+const floodCache=new Map();
+async function fetchFloodHistory(p){
+  const key=p.lat.toFixed(4)+','+p.lon.toFixed(4);
+  if(floodCache.has(key)){ p.flood=floodCache.get(key); p.floodState='ok'; render(); return }
+  p.floodState='loading'; render();
+  try{
+    const url=`${GISTDA_FLOOD_QUERY}?geometry=${p.lon},${p.lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=flood_freq,area_rai,pv_tn,ap_tn,tb_tn&returnGeometry=false&f=json`;
+    const r=await fetch(url);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j=await r.json();
+    if(j.error) throw new Error(j.error.message||('GISTDA error '+j.error.code));
+    const feats=j.features||[];
+    let flood;
+    if(!feats.length) flood={freq:0};
+    else{
+      const best=feats.reduce((a,b)=>(b.attributes.flood_freq>a.attributes.flood_freq?b:a));
+      const a=best.attributes;
+      flood={freq:a.flood_freq||0, areaRai:a.area_rai, pv:a.pv_tn, ap:a.ap_tn, tb:a.tb_tn};
+    }
+    floodCache.set(key,flood); p.flood=flood; p.floodState='ok';
+  }catch(err){
+    p.floodState='err'; p.floodErr=err.message;
+    toast('ดึงข้อมูลน้ำท่วมซ้ำซาก (GISTDA) ไม่สำเร็จ ('+err.message+')',6000);
+  }
+  render();
+}
+window.__retryFlood=id=>{const p=state.parcels.find(x=>x.id===id); if(p) fetchFloodHistory(p)};
+
 /* ══════════════ PARCEL LIFECYCLE ══════════════ */
 async function addParcel(lat,lon,name,src){
-  const p={id:++state.seq,lat,lon,name:name||null,src:src||'map',ready:false,poi:null,poiState:null,marker:null};
+  const p={id:++state.seq,lat,lon,name:name||null,src:src||'map',ready:false,
+           poi:null,poiState:null,flood:null,floodState:null,marker:null};
   state.parcels.push(p);
   state.active=p.id;
   render();
@@ -683,6 +740,7 @@ async function addParcel(lat,lon,name,src){
   catch(err){ p.err=err.message; toast('อ่านค่าความสูงไม่สำเร็จ: '+err.message) }
   render();
   if(state.showPoi) fetchPOI(p);
+  fetchFloodHistory(p);
 }
 
 function delParcel(id){
@@ -737,6 +795,8 @@ function render(){
              <span class="chip ${p.rel<3?'lo':p.rel>15?'hi':''}">สูงกว่าที่ต่ำรอบตัว ${p.rel.toFixed(0)} ม.</span>`;
       if(p.poiState==='loading') chips+=`<span class="chip"><span class="spin"></span> หาสถานที่</span>`;
       else if(p.poi) chips+=`<span class="chip">รร. ${p.poi.school.length} · พย. ${p.poi.health.length}</span>`;
+      if(p.floodState==='loading') chips+=`<span class="chip"><span class="spin"></span> เช็คน้ำท่วม</span>`;
+      else if(p.flood) chips+= p.flood.freq>0 ? `<span class="chip lo">ท่วมซ้ำซาก ${p.flood.freq}/${GISTDA_FLOOD_TOTAL_YEARS} ปี</span>` : `<span class="chip">ไม่มีประวัติน้ำท่วมซ้ำซาก</span>`;
     }
     return `<div class="pcard ${p.id===state.active?'on':''}" data-id="${p.id}">
       <div class="pnum">${String(idx+1).padStart(2,'0')}</div>
@@ -837,6 +897,25 @@ function verdict(p){
   return `<div class="verdict ${cls}">${v.join('<br>')}</div>`;
 }
 
+function floodHtml(p){
+  if(p.floodState==='loading') return `<div class="pad" style="padding-top:0"><div class="eyebrow">น้ำท่วมซ้ำซาก (GISTDA)</div><div style="color:var(--dim);font-size:12.5px"><span class="spin"></span> กำลังตรวจสอบ…</div></div>`;
+  if(p.floodState==='err') return `<div class="pad" style="padding-top:0"><div class="eyebrow">น้ำท่วมซ้ำซาก (GISTDA)</div><div class="verdict bad">ตรวจสอบไม่สำเร็จ<br><span class="mono" style="font-size:10.5px;color:var(--dim)">${esc(p.floodErr||'')}</span><br><button class="ghost" style="margin-top:7px" onclick="window.__retryFlood(${p.id})">ลองใหม่</button></div></div>`;
+  if(!p.flood) return '';
+  const f=p.flood;
+  if(!f.freq) return `<div class="pad" style="padding-top:0">
+    <div class="eyebrow">น้ำท่วมซ้ำซาก (GISTDA 2005–2016)</div>
+    <div class="verdict good">ไม่อยู่ในพื้นที่ที่ GISTDA บันทึกว่าเคยน้ำท่วมซ้ำซากช่วงปี 2005–2016</div>
+  </div>`;
+  const cls=f.freq>=4?'bad':f.freq>=2?'mid':'good';
+  const loc=[f.tb,f.ap,f.pv].filter(Boolean).join(' ');
+  return `<div class="pad" style="padding-top:0">
+    <div class="eyebrow">น้ำท่วมซ้ำซาก (GISTDA 2005–2016)</div>
+    <div class="verdict ${cls}"><b>เคยน้ำท่วมซ้ำซาก ${f.freq} จาก ${GISTDA_FLOOD_TOTAL_YEARS} ปี</b> (2005–2016) ในบริเวณนี้
+    ${loc?`<br>ตำแหน่ง: ${esc(loc)}`:''}
+    ${f.areaRai?`<br>ขนาดโซนน้ำท่วมซ้ำซากผืนนี้: ~${f.areaRai.toFixed(1)} ไร่`:''}</div>
+  </div>`;
+}
+
 function renderDetail(){
   const D=$('#detail'), p=state.parcels.find(x=>x.id===state.active);
   if(!p){ D.innerHTML=''; return }
@@ -898,6 +977,7 @@ function renderDetail(){
       ${verdict(p)}
       ${transectSvg(p)}
     </div>
+    ${floodHtml(p)}
     ${poiHtml}`;
 
   D.querySelectorAll('.tally .c').forEach(el=>{
@@ -991,6 +1071,7 @@ const COLS=[
   {k:'s15',  t:'รร.≤15', v:p=>p.poi?p.poi.school.filter(x=>x.dist<=15).length:'—', raw:p=>p.poi?p.poi.school.filter(x=>x.dist<=15).length:-1},
   {k:'h15',  t:'พย.≤15', v:p=>p.poi?p.poi.health.filter(x=>x.dist<=15).length:'—', raw:p=>p.poi?p.poi.health.filter(x=>x.dist<=15).length:-1},
   {k:'h30',  t:'พย.≤30', v:p=>p.poi?p.poi.health.filter(x=>x.dist<=30).length:'—', raw:p=>p.poi?p.poi.health.filter(x=>x.dist<=30).length:-1},
+  {k:'flood',t:'ท่วมซ้ำซาก (ปี)', v:p=>p.flood?`<span style="color:${p.flood.freq>0?'#D4664A':'#74A05C'}">${p.flood.freq}/${GISTDA_FLOOD_TOTAL_YEARS}</span>`:(p.floodState==='err'?'—':'…'), raw:p=>p.flood?p.flood.freq:-1},
   {k:'ll',   t:'พิกัด', v:p=>`${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`, raw:p=>p.lat}
 ];
 
@@ -1030,9 +1111,11 @@ $('#baseSeg').onclick=e=>{
 };
 $('#tgHill').onchange=e=>map.setLayoutProperty('l-hill','visibility',e.target.checked?'visible':'none');
 $('#tg3d').onchange=e=>{
-  if(e.target.checked){ map.setTerrain({source:'dem',exaggeration:1.5}); map.easeTo({pitch:62,duration:900}) }
+  // ที่ดินไทยส่วนใหญ่ค่อนข้างราบ ต้องดันความสูงมาก ๆ ถึงจะเห็นความต่างของภูมิประเทศชัด
+  if(e.target.checked){ map.setTerrain({source:'dem',exaggeration:4.5}); map.easeTo({pitch:68,duration:900}) }
   else{ map.setTerrain(null); map.easeTo({pitch:0,duration:700}) }
 };
+$('#tgFlood').onchange=e=>map.setLayoutProperty('l-floodhist','visibility',e.target.checked?'visible':'none');
 $('#tgPoi').onchange=e=>{
   state.showPoi=e.target.checked;
   const ap=state.parcels.find(x=>x.id===state.active);
