@@ -211,9 +211,17 @@ button.ghost{background:transparent}
          font-size:11px;font-weight:700;color:var(--ink)}
 .mk.on{background:var(--water);width:31px;height:31px;z-index:3}
 .mk.on span{font-size:13px}
-.poi-mk{width:8px;height:8px;border-radius:50%;border:1px solid rgba(0,0,0,.6)}
+.poi-mk{
+  width:18px;height:18px;border-radius:50%;cursor:pointer;
+  border:2.5px solid #0F161A;
+  box-shadow:0 0 0 1.5px rgba(228,224,212,.85),0 2px 6px rgba(0,0,0,.55);
+}
 .poi-mk.s{background:var(--contour)}
 .poi-mk.h{background:var(--water)}
+.poi-pop{font-family:'IBM Plex Sans Thai',sans-serif}
+.poi-pop .t{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8A968F;margin-top:4px;display:block}
+.poi-pop a{color:#3FA9BC;font-size:11.5px;display:inline-block;margin-top:5px}
+.maplibregl-popup-close-button{color:#8A968F;font-size:16px;padding:2px 6px}
 
 .maplibregl-popup-content{
   background:var(--panel2);color:var(--paper);border:1px solid var(--line);
@@ -364,6 +372,10 @@ const OVERPASS_MIRRORS = [
   'https://overpass.private.coffee/api/interpreter'
 ];
 const OVERPASS_TIMEOUT_MS = 25000;           // ตัดคำขอทิ้งถ้าเซิร์ฟเวอร์ไม่ตอบภายในเวลานี้ แล้วลองเซิร์ฟเวอร์ถัดไป
+const POI_TYPE_TH = {
+  school:'โรงเรียน', college:'วิทยาลัย',
+  hospital:'โรงพยาบาล', clinic:'คลินิก', doctors:'คลินิกแพทย์', centre:'ศูนย์บริการสุขภาพ'
+};
 const GRID_M     = 90;                       // Horn 3x3 spacing ≈ GLO-90 cell
 const RINGS      = [[1000,16],[2500,12]];    // [radius m, n samples]
 const TRANSECT   = {len:3000, n:31};
@@ -893,9 +905,16 @@ function renderMap(){
     const maxR=Math.max(...state.radii,0);
     const put=(arr,cls,label)=>arr.filter(x=>x.dist<=maxR).slice(0,320).forEach(x=>{
       const el=document.createElement('div'); el.className='poi-mk '+cls;
+      const typeTh=POI_TYPE_TH[x.type]||label;
+      const gmaps=`https://www.google.com/maps?q=${x.lat.toFixed(6)},${x.lon.toFixed(6)}`;
       const m=new maplibregl.Marker({element:el}).setLngLat([x.lon,x.lat])
-        .setPopup(new maplibregl.Popup({offset:9,closeButton:false})
-          .setHTML(`<b>${esc(x.name)}</b><br><span style="color:#8A968F">${label} · ${x.dist.toFixed(1)} กม.</span>`))
+        .setPopup(new maplibregl.Popup({offset:14,closeButton:true,maxWidth:'250px'})
+          .setHTML(`<div class="poi-pop">
+            <b>${esc(x.name)}</b><br>
+            <span style="color:#8A968F">${typeTh} · ${x.dist.toFixed(1)} กม. จากแปลง</span>
+            <span class="t">${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}</span>
+            <a href="${gmaps}" target="_blank" rel="noopener">เปิดใน Google Maps ↗</a>
+          </div>`))
         .addTo(map);
       poiMarkers.push(m);
     });
