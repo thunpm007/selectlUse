@@ -171,6 +171,8 @@ button.ghost{background:transparent}
   border-bottom:1px dotted var(--line);font-size:12px;align-items:baseline;
 }
 .poi-line:last-child{border-bottom:none}
+.poi-line[data-poi-lat]{cursor:pointer}
+.poi-line[data-poi-lat]:hover .n{color:var(--water)}
 .poi-line .d{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--water)}
 .poi-line .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tally{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:11px}
@@ -187,6 +189,15 @@ button.ghost{background:transparent}
   padding:9px 11px;
 }
 #layerCtl{top:12px;right:12px;width:186px}
+#pinBtn{
+  top:12px;left:12px;cursor:pointer;user-select:none;
+  display:flex;align-items:center;gap:8px;max-width:250px;
+  font-family:'IBM Plex Sans Thai',sans-serif;font-size:12.5px;font-weight:500;color:var(--paper);
+}
+#pinBtn:hover{background:rgba(28,38,44,.97)}
+#pinBtn .dot{width:8px;height:8px;border-radius:50%;background:var(--dimmer);flex-shrink:0;transition:.15s}
+#pinBtn.on{border-color:var(--water)}
+#pinBtn.on .dot{background:var(--water);box-shadow:0 0 6px var(--water)}
 .ctl-t{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.15em;
        text-transform:uppercase;color:var(--dimmer);margin-bottom:7px}
 .seg{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden;margin-bottom:11px}
@@ -303,7 +314,7 @@ tr.on .tnum{background:var(--water)}
 47N 743210 1815430"></textarea>
       <div class="hint">
         หนึ่งบรรทัดต่อหนึ่งแปลง · ใส่ชื่อต่อท้ายได้<br>
-        รองรับ องศาทศนิยม · DMS · UTM (WGS84) · ลิงก์ Google Maps · หรือคลิกบนแผนที่
+        รองรับ องศาทศนิยม · DMS · UTM (WGS84) · ลิงก์ Google Maps · หรือกดปุ่ม "ปักหมุดบนแผนที่" แล้วคลิกตำแหน่งที่ต้องการ
       </div>
       <div class="btnrow">
         <button class="primary" id="btnAdd">เพิ่มแปลง</button>
@@ -314,7 +325,7 @@ tr.on .tnum{background:var(--water)}
     <div id="listWrap">
       <div class="empty" id="emptyMsg">
         ยังไม่มีแปลง<br>
-        วางพิกัดด้านบนแล้วกดเพิ่มแปลง<br>หรือคลิกตำแหน่งบนแผนที่
+        วางพิกัดด้านบนแล้วกดเพิ่มแปลง<br>หรือกด "ปักหมุดบนแผนที่" แล้วคลิกตำแหน่ง
       </div>
       <div id="list"></div>
     </div>
@@ -325,6 +336,11 @@ tr.on .tnum{background:var(--water)}
   <!-- ============ STAGE ============ -->
   <main id="stage">
     <div id="map"></div>
+
+    <button class="mapctl" id="pinBtn" type="button">
+      <span class="dot"></span>
+      <span id="pinBtnLabel">ปักหมุดบนแผนที่</span>
+    </button>
 
     <div class="mapctl" id="layerCtl">
       <div class="ctl-t">แผนที่ฐาน</div>
@@ -384,7 +400,7 @@ const RADII      = [15,30,50];
 const state = {
   parcels: [], seq: 0, active: null,
   radii: new Set(RADII), showAll:false, showPoi:true,
-  sort:{key:'id', dir:1}
+  sort:{key:'id', dir:1}, pinMode:false, poiFull:null
 };
 
 /* ══════════════ MAP ══════════════ */
@@ -430,11 +446,18 @@ map.addControl(new maplibregl.ScaleControl({maxWidth:110,unit:'metric'}),'bottom
 
 map.on('load', ()=>{
   map.on('click', e=>{
-    if(e.originalEvent.target.closest('.mapctl,#drawer,.mk')) return;
+    if(e.originalEvent.target.closest('.mapctl,#drawer,.mk,.poi-mk')) return;
+    if(!state.pinMode) return;
     addParcel(e.lngLat.lat, e.lngLat.lng, null);
   });
-  map.getCanvas().style.cursor='crosshair';
 });
+
+$('#pinBtn').onclick=()=>{
+  state.pinMode=!state.pinMode;
+  $('#pinBtn').classList.toggle('on',state.pinMode);
+  $('#pinBtnLabel').textContent=state.pinMode?'คลิกบนแผนที่เพื่อปักหมุด (กดอีกครั้งเพื่อยกเลิก)':'ปักหมุดบนแผนที่';
+  map.getCanvas().style.cursor=state.pinMode?'crosshair':'';
+};
 
 /* ══════════════ HELPERS ══════════════ */
 function fc(f){return {type:'FeatureCollection',features:f}}
@@ -825,20 +848,36 @@ function renderDetail(){
   else if(p.poiState==='err') poiHtml=`<div class="pad"><div class="verdict bad">ดึงข้อมูลสถานที่ไม่สำเร็จทุกเซิร์ฟเวอร์<br><span class="mono" style="font-size:10.5px;color:var(--dim)">${esc(p.poiErr||'')}</span><br><button class="ghost" style="margin-top:7px" onclick="window.__retry(${p.id})">ลองใหม่</button></div></div>`;
   else if(p.poi){
     const cnt=(arr,r)=>arr.filter(x=>x.dist<=r).length;
+    const line=s=>`<div class="poi-line" data-poi-lat="${s.lat}" data-poi-lon="${s.lon}"><span class="n">${esc(s.name)}</span><span class="d">${s.dist.toFixed(1)} กม.</span></div>`;
+    let fullListHtml='';
+    if(state.poiFull){
+      const {r,k}=state.poiFull;
+      const arr=(k==='school'?p.poi.school:p.poi.health).filter(x=>x.dist<=r);
+      const label=k==='school'?'สถานศึกษา':'สถานพยาบาล';
+      fullListHtml=`
+        <div class="eyebrow" style="margin-top:13px">${label}ทั้งหมดในรัศมี ${r} กม. · ${arr.length} แห่ง</div>
+        <div class="hint" style="margin-top:-5px">คลิกตัวเลขในตารางด้านบนซ้ำเพื่อปิดรายการนี้ · คลิกชื่อเพื่อซูมไปตำแหน่ง</div>
+        <div style="max-height:230px;overflow-y:auto;margin-top:7px">
+          ${arr.map(line).join('')||'<div class="hint">ไม่พบ</div>'}
+        </div>`;
+    }
     poiHtml=`<div class="pad">
       <div class="eyebrow">สิ่งอำนวยความสะดวก</div>
       <div class="tally">
-        ${RADII.map(r=>`<div><div class="r">${r} กม.</div>
-          <div class="c s">${cnt(p.poi.school,r)}</div>
-          <div class="c h">${cnt(p.poi.health,r)}</div></div>`).join('')}
+        ${RADII.map(r=>`<div>
+          <div class="r">${r} กม.</div>
+          <div class="c s" data-r="${r}" data-k="school" style="cursor:pointer${state.poiFull?.r===r&&state.poiFull?.k==='school'?';text-decoration:underline':''}">${cnt(p.poi.school,r)}</div>
+          <div class="c h" data-r="${r}" data-k="health" style="cursor:pointer${state.poiFull?.r===r&&state.poiFull?.k==='health'?';text-decoration:underline':''}">${cnt(p.poi.health,r)}</div>
+        </div>`).join('')}
       </div>
       <div class="hint mono" style="margin:-6px 0 12px;display:flex;gap:13px">
         <span style="color:var(--contour)">■ สถานศึกษา</span><span style="color:var(--water)">■ สถานพยาบาล</span>
       </div>
       <div class="eyebrow">สถานศึกษาใกล้สุด</div>
-      ${p.poi.school.slice(0,4).map(s=>`<div class="poi-line"><span class="n">${esc(s.name)}</span><span class="d">${s.dist.toFixed(1)} กม.</span></div>`).join('')||'<div class="hint">ไม่พบในรัศมี 50 กม.</div>'}
+      ${p.poi.school.slice(0,4).map(line).join('')||'<div class="hint">ไม่พบในรัศมี 50 กม.</div>'}
       <div class="eyebrow" style="margin-top:13px">สถานพยาบาลใกล้สุด</div>
-      ${p.poi.health.slice(0,4).map(s=>`<div class="poi-line"><span class="n">${esc(s.name)}</span><span class="d">${s.dist.toFixed(1)} กม.</span></div>`).join('')||'<div class="hint">ไม่พบในรัศมี 50 กม.</div>'}
+      ${p.poi.health.slice(0,4).map(line).join('')||'<div class="hint">ไม่พบในรัศมี 50 กม.</div>'}
+      ${fullListHtml}
     </div>`;
   } else {
     poiHtml=`<div class="pad"><button class="ghost" onclick="window.__retry(${p.id})">ค้นหาโรงเรียน / สถานพยาบาล</button></div>`;
@@ -860,6 +899,19 @@ function renderDetail(){
       ${transectSvg(p)}
     </div>
     ${poiHtml}`;
+
+  D.querySelectorAll('.tally .c').forEach(el=>{
+    el.onclick=()=>{
+      const r=+el.dataset.r, k=el.dataset.k;
+      state.poiFull=(state.poiFull&&state.poiFull.r===r&&state.poiFull.k===k)?null:{r,k};
+      renderDetail();
+    };
+  });
+  D.querySelectorAll('.poi-line[data-poi-lat]').forEach(el=>{
+    el.onclick=()=>{
+      map.flyTo({center:[+el.dataset.poiLon,+el.dataset.poiLat],zoom:16,duration:800});
+    };
+  });
 }
 window.__retry=id=>{const p=state.parcels.find(x=>x.id===id); if(p) fetchPOI(p)};
 
