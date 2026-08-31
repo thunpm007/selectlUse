@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>คัดกรองแปลงที่ดิน — ภูมิประเทศ ทางน้ำ และสิ่งอำนวยความสะดวก</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+
+<style>
+:root{
+  --ink:#0F161A;
+  --panel:#161F24;
+  --panel2:#1C262C;
+  --panel3:#243036;
+  --line:#2B383F;
+  --paper:#E4E0D4;
+  --dim:#8A968F;
+  --dimmer:#5F6D68;
+  --water:#3FA9BC;
+  --contour:#C07B37;
+  --forest:#74A05C;
+  --warn:#D4664A;
+  --rail:380px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--ink);color:var(--paper);
+  font-family:'IBM Plex Sans Thai',system-ui,sans-serif;
+  font-weight:400;font-size:14px;line-height:1.55;
+  overflow:hidden;
+}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+
+/* ---------- shell ---------- */
+#shell{display:grid;grid-template-columns:var(--rail) 1fr;height:100vh;height:100dvh}
+#rail{
+  background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;
+}
+#stage{position:relative;min-width:0}
+#map{position:absolute;inset:0}
+
+/* ---------- masthead ---------- */
+.masthead{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.masthead h1{
+  font-size:15px;font-weight:600;letter-spacing:-.01em;line-height:1.3;
+}
+.masthead .sub{
+  font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dimmer);margin-top:5px;font-family:'IBM Plex Mono',monospace;
+}
+
+/* ---------- input ---------- */
+.pad{padding:14px 18px}
+.eyebrow{
+  font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--dimmer);font-family:'IBM Plex Mono',monospace;
+  display:flex;align-items:center;gap:8px;margin-bottom:9px;
+}
+.eyebrow::after{content:'';flex:1;height:1px;background:var(--line)}
+
+textarea#coordIn{
+  width:100%;min-height:78px;resize:vertical;
+  background:var(--ink);color:var(--paper);
+  border:1px solid var(--line);border-radius:3px;
+  padding:9px 10px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  line-height:1.65;
+}
+textarea#coordIn:focus{outline:none;border-color:var(--water);box-shadow:0 0 0 3px rgba(63,169,188,.13)}
+textarea#coordIn::placeholder{color:var(--dimmer)}
+
+.hint{font-size:11px;color:var(--dimmer);margin-top:7px;line-height:1.6}
+
+.btnrow{display:flex;gap:7px;margin-top:10px}
+button{
+  font-family:'IBM Plex Sans Thai',sans-serif;font-size:12.5px;font-weight:500;
+  border:1px solid var(--line);background:var(--panel2);color:var(--paper);
+  padding:8px 13px;border-radius:3px;cursor:pointer;transition:.13s;
+}
+button:hover{background:var(--panel3);border-color:var(--dimmer)}
+button:focus-visible{outline:2px solid var(--water);outline-offset:2px}
+button.primary{background:var(--water);border-color:var(--water);color:#06171B;font-weight:600}
+button.primary:hover{filter:brightness(1.12)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.ghost{background:transparent}
+
+/* ---------- parcel list ---------- */
+#listWrap{flex:1;overflow-y:auto;min-height:0;border-top:1px solid var(--line)}
+#listWrap::-webkit-scrollbar{width:9px}
+#listWrap::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
+
+.empty{padding:34px 22px;text-align:center;color:var(--dimmer);font-size:12.5px;line-height:1.75}
+
+.pcard{
+  border-bottom:1px solid var(--line);padding:12px 18px;cursor:pointer;
+  display:grid;grid-template-columns:26px 1fr auto;gap:11px;align-items:start;
+  transition:background .13s;position:relative;
+}
+.pcard:hover{background:var(--panel2)}
+.pcard.on{background:var(--panel2)}
+.pcard.on::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--water)}
+.pnum{
+  font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
+  color:var(--ink);background:var(--dim);border-radius:2px;
+  width:22px;height:20px;display:grid;place-items:center;margin-top:1px;
+}
+.pcard.on .pnum{background:var(--water)}
+.pname{font-size:13px;font-weight:500;line-height:1.35;word-break:break-word}
+.pmeta{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--dim);margin-top:3px}
+.pdel{
+  background:none;border:none;color:var(--dimmer);font-size:15px;padding:0 3px;
+  line-height:1;cursor:pointer;
+}
+.pdel:hover{color:var(--warn);background:none}
+.chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;grid-column:2/4}
+.chip{
+  font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.02em;
+  padding:2px 6px;border-radius:2px;background:var(--panel3);color:var(--dim);
+}
+.chip.el{color:var(--contour)}
+.chip.sl{color:var(--paper)}
+.chip.lo{color:var(--warn)}
+.chip.hi{color:var(--forest)}
+.spin{
+  display:inline-block;width:9px;height:9px;border:1.5px solid var(--line);
+  border-top-color:var(--water);border-radius:50%;animation:sp .7s linear infinite;
+}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2s}}
+
+/* ---------- detail ---------- */
+#detail{border-top:1px solid var(--line);background:var(--panel2);max-height:47vh;overflow-y:auto}
+#detail::-webkit-scrollbar{width:9px}
+#detail::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
+
+/* signature: aspect rose */
+.rose-block{display:grid;grid-template-columns:118px 1fr;gap:15px;align-items:center}
+.rose{width:118px;height:118px;display:block}
+.readout{display:flex;flex-direction:column;gap:9px}
+.ro{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+    border-bottom:1px dotted var(--line);padding-bottom:5px}
+.ro:last-child{border-bottom:none}
+.ro .k{font-size:11px;color:var(--dim)}
+.ro .v{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:500}
+.ro .v small{font-size:10px;color:var(--dim);font-weight:400;margin-left:2px}
+
+.verdict{
+  margin-top:12px;padding:10px 12px;border-radius:3px;font-size:12px;line-height:1.65;
+  border-left:2px solid var(--dim);background:var(--ink);
+}
+.verdict.good{border-left-color:var(--forest)}
+.verdict.mid{border-left-color:var(--contour)}
+.verdict.bad{border-left-color:var(--warn)}
+.verdict b{font-weight:600}
+
+/* transect sparkline */
+.transect{margin-top:13px}
+.tsvg{width:100%;height:66px;display:block;background:var(--ink);border-radius:3px}
+
+/* poi list */
+.poi-line{
+  display:grid;grid-template-columns:1fr auto;gap:9px;padding:5px 0;
+  border-bottom:1px dotted var(--line);font-size:12px;align-items:baseline;
+}
+.poi-line:last-child{border-bottom:none}
+.poi-line .d{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--water)}
+.poi-line .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tally{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:11px}
+.tally div{background:var(--ink);border-radius:3px;padding:8px 9px;text-align:center}
+.tally .r{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--dimmer);letter-spacing:.08em}
+.tally .c{font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:600;margin-top:2px}
+.tally .c.s{color:var(--contour)}
+.tally .c.h{color:var(--water)}
+
+/* ---------- map controls ---------- */
+.mapctl{
+  position:absolute;z-index:5;background:rgba(15,22,26,.93);
+  border:1px solid var(--line);border-radius:4px;backdrop-filter:blur(9px);
+  padding:9px 11px;
+}
+#layerCtl{top:12px;right:12px;width:186px}
+.ctl-t{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.15em;
+       text-transform:uppercase;color:var(--dimmer);margin-bottom:7px}
+.seg{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden;margin-bottom:11px}
+.seg button{
+  flex:1;border:none;border-radius:0;background:transparent;font-size:11px;
+  padding:6px 3px;color:var(--dim);
+}
+.seg button.on{background:var(--water);color:#06171B;font-weight:600}
+.tog{display:flex;align-items:center;gap:8px;padding:3.5px 0;cursor:pointer;font-size:12px}
+.tog input{accent-color:var(--water);width:13px;height:13px;cursor:pointer}
+.rads{display:flex;gap:5px;margin-top:5px}
+.rads button{flex:1;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:5px 0}
+.rads button.on{background:var(--water);border-color:var(--water);color:#06171B;font-weight:600}
+
+/* markers */
+.mk{
+  width:25px;height:25px;border-radius:50% 50% 50% 3px;transform:rotate(-45deg);
+  background:var(--dim);border:1.5px solid var(--ink);cursor:pointer;
+  display:grid;place-items:center;box-shadow:0 2px 7px rgba(0,0,0,.55);
+}
+.mk span{transform:rotate(45deg);font-family:'IBM Plex Mono',monospace;
+         font-size:11px;font-weight:700;color:var(--ink)}
+.mk.on{background:var(--water);width:31px;height:31px;z-index:3}
+.mk.on span{font-size:13px}
+.poi-mk{width:8px;height:8px;border-radius:50%;border:1px solid rgba(0,0,0,.6)}
+.poi-mk.s{background:var(--contour)}
+.poi-mk.h{background:var(--water)}
+
+.maplibregl-popup-content{
+  background:var(--panel2);color:var(--paper);border:1px solid var(--line);
+  border-radius:3px;padding:9px 11px;font-family:'IBM Plex Sans Thai',sans-serif;font-size:12px;
+}
+.maplibregl-popup-tip{border-top-color:var(--panel2)!important;border-bottom-color:var(--panel2)!important}
+.maplibregl-ctrl-attrib{font-size:9.5px!important}
+
+/* ---------- compare drawer ---------- */
+#drawer{
+  position:absolute;left:0;right:0;bottom:0;z-index:6;
+  background:rgba(15,22,26,.97);border-top:1px solid var(--line);
+  backdrop-filter:blur(11px);transform:translateY(calc(100% - 37px));
+  transition:transform .28s cubic-bezier(.4,0,.2,1);max-height:60vh;display:flex;flex-direction:column;
+}
+#drawer.open{transform:translateY(0)}
+@media (prefers-reduced-motion:reduce){#drawer{transition:none}}
+#dhandle{
+  height:37px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 15px;cursor:pointer;user-select:none;flex-shrink:0;
+}
+#dhandle .lbl{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.14em;
+              text-transform:uppercase;color:var(--dim)}
+#dhandle .arw{color:var(--dim);font-size:11px;transition:transform .28s}
+#drawer.open #dhandle .arw{transform:rotate(180deg)}
+#dbody{overflow:auto;padding:0 15px 15px}
+table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
+th{
+  font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dimmer);text-align:right;font-weight:500;
+  padding:7px 9px;border-bottom:1px solid var(--line);position:sticky;top:0;
+  background:var(--ink);cursor:pointer;
+}
+th:first-child,th:nth-child(2){text-align:left}
+th:hover{color:var(--paper)}
+th .sar{color:var(--water)}
+td{padding:8px 9px;border-bottom:1px solid rgba(43,56,63,.5);text-align:right;
+   font-family:'IBM Plex Mono',monospace;font-size:12px}
+td:nth-child(2){text-align:left;font-family:'IBM Plex Sans Thai',sans-serif}
+tr{cursor:pointer}
+tr:hover td{background:var(--panel)}
+tr.on td{background:var(--panel2)}
+.tnum{display:inline-grid;place-items:center;width:19px;height:17px;border-radius:2px;
+      background:var(--dim);color:var(--ink);font-size:10px;font-weight:600}
+tr.on .tnum{background:var(--water)}
+.mini{display:inline-block;vertical-align:middle}
+
+#toast{
+  position:absolute;bottom:52px;left:50%;transform:translateX(-50%);z-index:20;
+  background:var(--panel3);border:1px solid var(--line);border-radius:3px;
+  padding:9px 15px;font-size:12.5px;opacity:0;pointer-events:none;transition:opacity .2s;
+  max-width:80%;
+}
+#toast.show{opacity:1}
+
+/* ---------- mobile ---------- */
+@media (max-width:880px){
+  #shell{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  #rail{border-right:none;border-bottom:1px solid var(--line);max-height:52vh}
+  #layerCtl{width:160px;top:8px;right:8px;padding:7px 9px}
+  #detail{max-height:none}
+}
+</style>
+</head>
+<body>
+
+<div id="shell">
+  <!-- ============ RAIL ============ -->
+  <aside id="rail">
+    <div class="masthead">
+      <h1>คัดกรองแปลงที่ดิน</h1>
+      <div class="sub">terrain · drainage · access</div>
+    </div>
+
+    <div class="pad">
+      <div class="eyebrow">พิกัด</div>
+      <textarea id="coordIn" spellcheck="false" placeholder="16.4321, 101.2345
+16.4102, 101.3011, แปลง ธ.ก.ส. เลย
+47N 743210 1815430"></textarea>
+      <div class="hint">
+        หนึ่งบรรทัดต่อหนึ่งแปลง · ใส่ชื่อต่อท้ายได้<br>
+        รองรับ องศาทศนิยม · DMS · UTM (WGS84) · ลิงก์ Google Maps · หรือคลิกบนแผนที่
+      </div>
+      <div class="btnrow">
+        <button class="primary" id="btnAdd">เพิ่มแปลง</button>
+        <button class="ghost" id="btnAllPoi">หาสถานที่ทุกแปลง</button>
+      </div>
+    </div>
+
+    <div id="listWrap">
+      <div class="empty" id="emptyMsg">
+        ยังไม่มีแปลง<br>
+        วางพิกัดด้านบนแล้วกดเพิ่มแปลง<br>หรือคลิกตำแหน่งบนแผนที่
+      </div>
+      <div id="list"></div>
+    </div>
+
+    <div id="detail"></div>
+  </aside>
+
+  <!-- ============ STAGE ============ -->
+  <main id="stage">
+    <div id="map"></div>
+
+    <div class="mapctl" id="layerCtl">
+      <div class="ctl-t">แผนที่ฐาน</div>
+      <div class="seg" id="baseSeg">
+        <button data-b="sat" class="on">ดาวเทียม</button>
+        <button data-b="topo">ภูมิประเทศ</button>
+        <button data-b="street">ถนน</button>
+      </div>
+      <div class="ctl-t">ชั้นข้อมูล</div>
+      <label class="tog"><input type="checkbox" id="tgHill" checked> เงาภูเขา</label>
+      <label class="tog"><input type="checkbox" id="tg3d"> ภูมิประเทศ 3 มิติ</label>
+      <label class="tog"><input type="checkbox" id="tgPoi" checked> โรงเรียน / สถานพยาบาล</label>
+      <label class="tog"><input type="checkbox" id="tgAll"> วงรัศมีทุกแปลง</label>
+      <div class="ctl-t" style="margin-top:10px">รัศมี (กม.)</div>
+      <div class="rads" id="radBtns">
+        <button data-r="15" class="on">15</button>
+        <button data-r="30" class="on">30</button>
+        <button data-r="50" class="on">50</button>
+      </div>
+    </div>
+
+    <div id="drawer">
+      <div id="dhandle">
+        <span class="lbl">ตารางเทียบแปลง · <span id="dcount">0</span></span>
+        <span class="arw">▲</span>
+      </div>
+      <div id="dbody">
+        <table id="cmp"><thead></thead><tbody></tbody></table>
+      </div>
+    </div>
+
+    <div id="toast"></div>
+  </main>
+</div>
+
+<script>
+'use strict';
+
+/* ══════════════ CONFIG ══════════════ */
+const ELEV_API   = 'https://api.open-meteo.com/v1/elevation';
+// เซิร์ฟเวอร์ Overpass สาธารณะหลายชุด — สลับไปตัวถัดไปอัตโนมัติถ้าตัวใดตัวหนึ่งล่ม/ช้า/โดนจำกัดคิว
+const OVERPASS_MIRRORS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter'
+];
+const OVERPASS_TIMEOUT_MS = 25000;           // ตัดคำขอทิ้งถ้าเซิร์ฟเวอร์ไม่ตอบภายในเวลานี้ แล้วลองเซิร์ฟเวอร์ถัดไป
+const GRID_M     = 90;                       // Horn 3x3 spacing ≈ GLO-90 cell
+const RINGS      = [[1000,16],[2500,12]];    // [radius m, n samples]
+const TRANSECT   = {len:3000, n:31};
+const RADII      = [15,30,50];
+
+const state = {
+  parcels: [], seq: 0, active: null,
+  radii: new Set(RADII), showAll:false, showPoi:true,
+  sort:{key:'id', dir:1}
+};
+
+/* ══════════════ MAP ══════════════ */
+const style = {
+  version:8,
+  glyphs:'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+  sources:{
+    sat:{type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+         tileSize:256,maxzoom:18,attribution:'Esri, Maxar, Earthstar Geographics'},
+    street:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+         tileSize:256,maxzoom:19,attribution:'© OpenStreetMap contributors'},
+    topo:{type:'raster',tiles:['https://a.tile.opentopomap.org/{z}/{x}/{y}.png','https://b.tile.opentopomap.org/{z}/{x}/{y}.png'],
+         tileSize:256,maxzoom:17,attribution:'© OpenTopoMap (CC-BY-SA)'},
+    dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+         tileSize:256,maxzoom:14,encoding:'terrarium',attribution:'Terrain: Mapzen / AWS Open Data'},
+    rings:{type:'geojson',data:fc([])},
+    flow:{type:'geojson',data:fc([])}
+  },
+  layers:[
+    {id:'l-sat',type:'raster',source:'sat',layout:{visibility:'visible'}},
+    {id:'l-topo',type:'raster',source:'topo',layout:{visibility:'none'}},
+    {id:'l-street',type:'raster',source:'street',layout:{visibility:'none'}},
+    {id:'l-hill',type:'hillshade',source:'dem',
+     paint:{'hillshade-exaggeration':.42,'hillshade-shadow-color':'#08121A','hillshade-highlight-color':'#E8E2CE','hillshade-accent-color':'#1B2A2E'}},
+    {id:'l-ringfill',type:'fill',source:'rings',
+     paint:{'fill-color':'#3FA9BC','fill-opacity':['interpolate',['linear'],['get','r'],15,.09,50,.03]}},
+    {id:'l-ringline',type:'line',source:'rings',
+     paint:{'line-color':'#3FA9BC','line-width':1.1,'line-opacity':.75,'line-dasharray':[3,2]}},
+    {id:'l-ringlbl',type:'symbol',source:'rings',
+     layout:{'text-field':['concat',['to-string',['get','r']],' กม.'],'symbol-placement':'line',
+             'text-size':11,'text-offset':[0,-.75]},
+     paint:{'text-color':'#3FA9BC','text-halo-color':'#0F161A','text-halo-width':1.6}},
+    {id:'l-flow',type:'line',source:'flow',
+     paint:{'line-color':'#3FA9BC','line-width':2.6,'line-opacity':.9}}
+  ]
+};
+
+const map = new maplibregl.Map({
+  container:'map', style, center:[100.99,15.87], zoom:5.4, maxPitch:78, attributionControl:{compact:true}
+});
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
+map.addControl(new maplibregl.ScaleControl({maxWidth:110,unit:'metric'}),'bottom-left');
+
+map.on('load', ()=>{
+  map.on('click', e=>{
+    if(e.originalEvent.target.closest('.mapctl,#drawer,.mk')) return;
+    addParcel(e.lngLat.lat, e.lngLat.lng, null);
+  });
+  map.getCanvas().style.cursor='crosshair';
+});
+
+/* ══════════════ HELPERS ══════════════ */
+function fc(f){return {type:'FeatureCollection',features:f}}
+function $(s){return document.querySelector(s)}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+let toastT;
+function toast(m,ms=3400){
+  const t=$('#toast'); t.textContent=m; t.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),ms);
+}
+function offset(lat,lon,dx,dy){
+  return [lat + dy/111320, lon + dx/(111320*Math.cos(lat*Math.PI/180))];
+}
+const COMPASS=['เหนือ','ต.อ.เฉียงเหนือ','ตะวันออก','ต.อ.เฉียงใต้','ใต้','ต.ต.เฉียงใต้','ตะวันตก','ต.ต.เฉียงเหนือ'];
+const COMPASS_S=['N','NE','E','SE','S','SW','W','NW'];
+function dirName(deg,short){
+  if(deg==null||isNaN(deg)) return '—';
+  const i=Math.round(((deg%360)+360)%360/45)%8;
+  return short?COMPASS_S[i]:COMPASS[i];
+}
+
+/* ══════════════ COORDINATE PARSING ══════════════ */
+function utmToLatLon(e,n,zone,south){
+  const a=6378137, f=1/298.257223563, k0=.9996;
+  const e2=f*(2-f), ep2=e2/(1-e2);
+  const x=e-500000, y=south?n-10000000:n;
+  const M=y/k0, mu=M/(a*(1-e2/4-3*e2*e2/64-5*e2**3/256));
+  const e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
+  const phi1=mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)
+            +(21*e1*e1/16-55*e1**4/32)*Math.sin(4*mu)
+            +(151*e1**3/96)*Math.sin(6*mu)+(1097*e1**4/512)*Math.sin(8*mu);
+  const s=Math.sin(phi1), c=Math.cos(phi1), t=Math.tan(phi1);
+  const N1=a/Math.sqrt(1-e2*s*s), T1=t*t, C1=ep2*c*c;
+  const R1=a*(1-e2)/Math.pow(1-e2*s*s,1.5), D=x/(N1*k0);
+  const lat=phi1-(N1*t/R1)*(D*D/2-(5+3*T1+10*C1-4*C1*C1-9*ep2)*D**4/24
+            +(61+90*T1+298*C1+45*T1*T1-252*ep2-3*C1*C1)*D**6/720);
+  const lon=(D-(1+2*T1+C1)*D**3/6
+            +(5-2*C1+28*T1-3*C1*C1+8*ep2+24*T1*T1)*D**5/120)/c;
+  return [lat*180/Math.PI, (zone*6-183)+lon*180/Math.PI];
+}
+
+function parseLine(raw){
+  let s=raw.trim(); if(!s) return null;
+  let name=null;
+
+  // Google Maps URL
+  const g=s.match(/(?:@|!3d|\/)(-?\d{1,3}\.\d{4,}),\s*!?4?d?(-?\d{1,3}\.\d{4,})/);
+  if(/google\.[a-z.]+\/maps/i.test(s)&&g) return mk(+g[1],+g[2],null,'gmaps');
+  const q=s.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if(/google\.[a-z.]+\/maps/i.test(s)&&q) return mk(+q[1],+q[2],null,'gmaps');
+
+  // trailing name after 2nd comma  →  "lat, lon, ชื่อ"
+  const parts=s.split(',');
+  if(parts.length>=3){
+    const tail=parts.slice(2).join(',').trim();
+    if(tail && isNaN(parseFloat(tail))){ name=tail; s=parts.slice(0,2).join(','); }
+  }
+  // trailing name after a tab or pipe  →  "16.4, 101.2 | ชื่อ"
+  const nm=s.match(/^([^\t|]+)[\t|]\s*(.+)$/);
+  if(nm && nm[2].trim() && isNaN(parseFloat(nm[2]))){ name=name||nm[2].trim(); s=nm[1].trim(); }
+
+  // UTM:  "47N 743210 1815430"  |  "E743210 N1815430 zone47"
+  const u=s.match(/\b(4[6-8])\s*([NnSs])?\s*[, ]\s*E?\s*(\d{6}(?:\.\d+)?)\s*[, ]\s*N?\s*(\d{6,7}(?:\.\d+)?)/);
+  if(u){
+    const [lat,lon]=utmToLatLon(+u[3],+u[4],+u[1],(u[2]||'N').toUpperCase()==='S');
+    return mk(lat,lon,name,'utm'+u[1]);
+  }
+
+  // DMS
+  const d=s.match(/(\d{1,3})[°\s]+(\d{1,2})['′\s]+([\d.]+)?["″\s]*\s*([NSns])[\s,]+(\d{1,3})[°\s]+(\d{1,2})['′\s]+([\d.]+)?["″\s]*\s*([EWew])/);
+  if(d){
+    let la=+d[1]+ +d[2]/60+(+d[3]||0)/3600, lo=+d[5]+ +d[6]/60+(+d[7]||0)/3600;
+    if(d[4].toUpperCase()==='S') la=-la;
+    if(d[8].toUpperCase()==='W') lo=-lo;
+    return mk(la,lo,name,'dms');
+  }
+
+  // decimal
+  const dd=s.match(/(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)/);
+  if(dd) return mk(+dd[1],+dd[2],name,'dd');
+  return {err:raw};
+
+  function mk(lat,lon,nm,src){
+    const inTH=(a,b)=>a>=5&&a<=21&&b>=96&&b<=106;
+    let swapped=false;
+    // auto-swap when the pair only makes sense reversed (a very common paste error)
+    if(!inTH(lat,lon)&&inTH(lon,lat)){ [lat,lon]=[lon,lat]; swapped=true }
+    return {lat,lon,name:nm,src,swapped,outside:!inTH(lat,lon)};
+  }
+}
+
+/* ══════════════ TERRAIN ANALYSIS ══════════════ */
+async function elevations(pts){
+  const lat=pts.map(p=>p[0].toFixed(6)).join(','), lon=pts.map(p=>p[1].toFixed(6)).join(',');
+  const r=await fetch(`${ELEV_API}?latitude=${lat}&longitude=${lon}`);
+  if(!r.ok) throw new Error('elev '+r.status);
+  const j=await r.json();
+  if(!j.elevation) throw new Error('no elevation returned');
+  return j.elevation;
+}
+
+async function analyze(p){
+  const pts=[];
+  // 3x3 Horn grid, row 0 = north
+  for(let dy=1;dy>=-1;dy--) for(let dx=-1;dx<=1;dx++)
+    pts.push(offset(p.lat,p.lon,dx*GRID_M,dy*GRID_M));
+  // rings
+  const ringIdx=[];
+  RINGS.forEach(([rad,n])=>{
+    for(let i=0;i<n;i++){
+      const th=i/n*2*Math.PI;
+      ringIdx.push(pts.length);
+      pts.push(offset(p.lat,p.lon,Math.sin(th)*rad,Math.cos(th)*rad));
+    }
+  });
+
+  const z=await elevations(pts);
+  const [a,b,c,d,e,f,g,h,i]=z;
+
+  const dzdx=((c+2*f+i)-(a+2*d+g))/(8*GRID_M);
+  const dzdy=((g+2*h+i)-(a+2*b+c))/(8*GRID_M);
+  const rise=Math.sqrt(dzdx*dzdx+dzdy*dzdy);
+  const slopeDeg=Math.atan(rise)*180/Math.PI;
+  const slopePct=rise*100;
+
+  let asp;
+  if(rise<1e-7) asp=null;
+  else{
+    let A=57.29578*Math.atan2(dzdy,-dzdx);
+    if(A<0) A=90-A; else if(A>90) A=360-A+90; else A=90-A;
+    asp=(A%360+360)%360;
+  }
+
+  const ring=ringIdx.map(k=>z[k]);
+  const ringMin=Math.min(...ring), ringMax=Math.max(...ring);
+  const rel=e-ringMin;                       // สูงกว่าจุดต่ำสุดรอบตัวเท่าไร
+
+  Object.assign(p,{elev:e,slopeDeg,slopePct,aspect:asp,rel,ringMin,ringMax,
+                   relief:ringMax-ringMin, ready:true});
+
+  // downslope transect along aspect
+  if(asp!=null){
+    const tp=[], th=asp*Math.PI/180;
+    for(let k=0;k<TRANSECT.n;k++){
+      const dist=k/(TRANSECT.n-1)*TRANSECT.len;
+      tp.push(offset(p.lat,p.lon,Math.sin(th)*dist,Math.cos(th)*dist));
+    }
+    try{ p.transect=await elevations(tp); }catch(_){ p.transect=null }
+  }
+  return p;
+}
+
+/* ══════════════ POI (Overpass) ══════════════ */
+const poiCache=new Map();
+
+async function queryOverpass(Q){
+  const errs=[];
+  for(const url of OVERPASS_MIRRORS){
+    const ctrl=new AbortController();
+    const t=setTimeout(()=>ctrl.abort(),OVERPASS_TIMEOUT_MS);
+    try{
+      const r=await fetch(url,{method:'POST',body:'data='+encodeURIComponent(Q),
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctrl.signal});
+      clearTimeout(t);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return await r.json();
+    }catch(err){
+      clearTimeout(t);
+      const msg=err.name==='AbortError'?'หมดเวลา':err.message;
+      errs.push(new URL(url).hostname+': '+msg);
+      // ลองเซิร์ฟเวอร์ตัวถัดไป
+    }
+  }
+  throw new Error(errs.join(' · '));
+}
+
+async function fetchPOI(p){
+  const key=p.lat.toFixed(3)+','+p.lon.toFixed(3);
+  if(poiCache.has(key)){ p.poi=poiCache.get(key); p.poiState='ok'; return }
+  p.poiState='loading'; render();
+  const Q=`[out:json][timeout:60];
+(
+ nwr["amenity"="school"](around:50000,${p.lat},${p.lon});
+ nwr["amenity"="college"](around:50000,${p.lat},${p.lon});
+ nwr["amenity"="hospital"](around:50000,${p.lat},${p.lon});
+ nwr["amenity"="clinic"](around:50000,${p.lat},${p.lon});
+ nwr["amenity"="doctors"](around:50000,${p.lat},${p.lon});
+ nwr["healthcare"="centre"](around:50000,${p.lat},${p.lon});
+);
+out center 1200;`;
+  try{
+    const j=await queryOverpass(Q);
+    const from=turf.point([p.lon,p.lat]);
+    const out={school:[],health:[]};
+    (j.elements||[]).forEach(el=>{
+      const la=el.lat??el.center?.lat, lo=el.lon??el.center?.lon;
+      if(la==null) return;
+      const t=el.tags||{};
+      const kind=(t.amenity==='school'||t.amenity==='college')?'school':'health';
+      const dist=turf.distance(from,turf.point([lo,la]),{units:'kilometers'});
+      if(dist>50) return;
+      out[kind].push({name:t['name:th']||t.name||(kind==='school'?'(สถานศึกษาไม่ระบุชื่อ)':'(สถานพยาบาลไม่ระบุชื่อ)'),
+                      lat:la,lon:lo,dist,type:t.amenity||t.healthcare});
+    });
+    out.school.sort((x,y)=>x.dist-y.dist);
+    out.health.sort((x,y)=>x.dist-y.dist);
+    poiCache.set(key,out); p.poi=out; p.poiState='ok';
+  }catch(err){
+    p.poiState='err'; p.poiErr=err.message;
+    toast('ดึงข้อมูลสถานที่ไม่สำเร็จทุกเซิร์ฟเวอร์ ('+err.message+') — ลองใหม่อีกครั้ง หรือเช็คว่าตัวบล็อกโฆษณา/ไฟร์วอลล์บล็อก overpass อยู่หรือไม่',6000);
+  }
+  render();
+}
+
+/* ══════════════ PARCEL LIFECYCLE ══════════════ */
+async function addParcel(lat,lon,name,src){
+  const p={id:++state.seq,lat,lon,name:name||null,src:src||'map',ready:false,poi:null,poiState:null,marker:null};
+  state.parcels.push(p);
+  state.active=p.id;
+  render();
+  map.flyTo({center:[lon,lat],zoom:Math.max(map.getZoom(),11),duration:900});
+  try{ await analyze(p) }
+  catch(err){ p.err=err.message; toast('อ่านค่าความสูงไม่สำเร็จ: '+err.message) }
+  render();
+  if(state.showPoi) fetchPOI(p);
+}
+
+function delParcel(id){
+  const p=state.parcels.find(x=>x.id===id);
+  if(p?.marker) p.marker.remove();
+  state.parcels=state.parcels.filter(x=>x.id!==id);
+  if(state.active===id) state.active=state.parcels[0]?.id??null;
+  render();
+}
+
+$('#btnAdd').onclick=()=>{
+  const lines=$('#coordIn').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!lines.length){ toast('ยังไม่ได้ใส่พิกัด'); return }
+  let bad=0, out=0, sw=0, utm=0;
+  lines.forEach(l=>{
+    const r=parseLine(l);
+    if(!r||r.err){ bad++; return }
+    if(r.outside) out++;
+    if(r.swapped) sw++;
+    if(r.src&&r.src.startsWith('utm')) utm++;
+    addParcel(r.lat,r.lon,r.name,r.src);
+  });
+  $('#coordIn').value='';
+  if(bad) toast(`อ่านพิกัดไม่ออก ${bad} บรรทัด — ตรวจรูปแบบอีกครั้ง`);
+  else if(out) toast(`${out} แปลงอยู่นอกขอบเขตประเทศไทย — ตรวจว่าผิดโซน UTM หรือ datum หรือไม่`);
+  else if(sw) toast(`สลับลำดับ lat/lon ให้ ${sw} แปลงโดยอัตโนมัติ — ตรวจตำแหน่งบนแผนที่อีกครั้ง`);
+  else if(utm) toast('พิกัด UTM ถูกแปลงโดยถือว่าเป็น datum WGS84 — ถ้าระวางเป็น Indian 1975 (โฉนดรุ่นเก่า) ตำแหน่งจะคลาดเคลื่อนราว 300–400 ม. ต้องแปลง datum ก่อน',7000);
+};
+
+$('#btnAllPoi').onclick=async e=>{
+  const todo=state.parcels.filter(p=>!p.poi&&p.poiState!=='loading');
+  if(!todo.length){ toast('ทุกแปลงมีข้อมูลสถานที่แล้ว'); return }
+  e.target.disabled=true;
+  for(const p of todo){ await fetchPOI(p); await new Promise(r=>setTimeout(r,2200)) }
+  e.target.disabled=false;
+};
+
+/* ══════════════ RENDER: RAIL LIST ══════════════ */
+function render(){
+  const L=$('#list'), P=state.parcels;
+  $('#emptyMsg').style.display=P.length?'none':'block';
+  $('#dcount').textContent=P.length;
+
+  L.innerHTML=P.map((p,idx)=>{
+    let chips='';
+    if(p.err) chips=`<span class="chip lo">อ่านค่าไม่ได้</span>`;
+    else if(!p.ready) chips=`<span class="chip"><span class="spin"></span> กำลังวิเคราะห์</span>`;
+    else{
+      chips=`<span class="chip el">${p.elev.toFixed(0)} ม.รทก.</span>
+             <span class="chip sl">${p.slopeDeg.toFixed(1)}°</span>
+             <span class="chip">น้ำไหลไป ${dirName(p.aspect,true)}</span>
+             <span class="chip ${p.rel<3?'lo':p.rel>15?'hi':''}">สูงกว่าที่ต่ำรอบตัว ${p.rel.toFixed(0)} ม.</span>`;
+      if(p.poiState==='loading') chips+=`<span class="chip"><span class="spin"></span> หาสถานที่</span>`;
+      else if(p.poi) chips+=`<span class="chip">รร. ${p.poi.school.length} · พย. ${p.poi.health.length}</span>`;
+    }
+    return `<div class="pcard ${p.id===state.active?'on':''}" data-id="${p.id}">
+      <div class="pnum">${String(idx+1).padStart(2,'0')}</div>
+      <div>
+        <div class="pname">${esc(p.name||'แปลงที่ '+(idx+1))}</div>
+        <div class="pmeta mono">${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</div>
+      </div>
+      <button class="pdel" data-del="${p.id}" title="ลบแปลง">×</button>
+      <div class="chips">${chips}</div>
+    </div>`;
+  }).join('');
+
+  L.querySelectorAll('.pcard').forEach(el=>{
+    el.onclick=ev=>{
+      if(ev.target.dataset.del) return;
+      const p=state.parcels.find(x=>x.id===+el.dataset.id);
+      state.active=p.id; render();
+      map.flyTo({center:[p.lon,p.lat],zoom:Math.max(map.getZoom(),11),duration:750});
+      if(!p.poi&&p.poiState!=='loading'&&state.showPoi) fetchPOI(p);
+    };
+  });
+  L.querySelectorAll('[data-del]').forEach(b=>b.onclick=ev=>{ev.stopPropagation();delParcel(+b.dataset.del)});
+
+  renderDetail(); renderMap(); renderTable();
+}
+
+/* ══════════════ RENDER: DETAIL + ROSE ══════════════ */
+function rose(p){
+  const R=52, cx=59, cy=59;
+  if(!p.ready||p.aspect==null)
+    return `<svg class="rose" viewBox="0 0 118 118"><circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#2B383F"/>
+      <text x="${cx}" y="${cy+4}" text-anchor="middle" fill="#5F6D68" font-size="11" font-family="IBM Plex Mono">ราบ</text></svg>`;
+  const th=(p.aspect-90)*Math.PI/180;
+  const nx=cx+Math.cos(th)*(R-9), ny=cy+Math.sin(th)*(R-9);
+  const bx=cx-Math.cos(th)*17, by=cy-Math.sin(th)*17;
+  // slope ring: fill fraction of a 30° scale
+  const frac=Math.min(p.slopeDeg/30,1);
+  const circ=2*Math.PI*(R-4);
+  let ticks='';
+  for(let i=0;i<8;i++){
+    const a=i*45*Math.PI/180-Math.PI/2, long=i%2===0;
+    ticks+=`<line x1="${cx+Math.cos(a)*(R-2)}" y1="${cy+Math.sin(a)*(R-2)}"
+                  x2="${cx+Math.cos(a)*(long?R-9:R-5)}" y2="${cy+Math.sin(a)*(long?R-9:R-5)}"
+                  stroke="${long?'#5F6D68':'#2B383F'}" stroke-width="1"/>`;
+  }
+  return `<svg class="rose" viewBox="0 0 118 118" role="img" aria-label="ทิศทางน้ำไหล ${dirName(p.aspect)} ความชัน ${p.slopeDeg.toFixed(1)} องศา">
+    <circle cx="${cx}" cy="${cy}" r="${R-4}" fill="none" stroke="#1C262C" stroke-width="4"/>
+    <circle cx="${cx}" cy="${cy}" r="${R-4}" fill="none" stroke="#C07B37" stroke-width="4"
+      stroke-dasharray="${(circ*frac).toFixed(1)} ${circ.toFixed(1)}"
+      transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt"/>
+    <circle cx="${cx}" cy="${cy}" r="${R-13}" fill="none" stroke="#2B383F" stroke-width="1"/>
+    ${ticks}
+    <text x="${cx}" y="14" text-anchor="middle" fill="#5F6D68" font-size="8.5" font-family="IBM Plex Mono">N</text>
+    <line x1="${bx}" y1="${by}" x2="${nx}" y2="${ny}" stroke="#3FA9BC" stroke-width="2.4" stroke-linecap="round"/>
+    <polygon points="${nx},${ny} ${nx-Math.cos(th-.42)*9},${ny-Math.sin(th-.42)*9} ${nx-Math.cos(th+.42)*9},${ny-Math.sin(th+.42)*9}" fill="#3FA9BC"/>
+    <circle cx="${cx}" cy="${cy}" r="3" fill="#0F161A" stroke="#3FA9BC" stroke-width="1.4"/>
+    <text x="${cx}" y="${cy+30}" text-anchor="middle" fill="#C07B37" font-size="12.5" font-weight="600" font-family="IBM Plex Mono">${p.slopeDeg.toFixed(1)}°</text>
+  </svg>`;
+}
+
+function transectSvg(p){
+  if(!p.transect) return '';
+  const z=p.transect, W=330, H=66, pad=6;
+  const mn=Math.min(...z), mx=Math.max(...z), rng=Math.max(mx-mn,1);
+  const pts=z.map((v,i)=>[pad+i/(z.length-1)*(W-2*pad), H-pad-((v-mn)/rng)*(H-2*pad-8)]);
+  const d=pts.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' ');
+  const area=d+` L${pts[pts.length-1][0].toFixed(1)} ${H-pad} L${pts[0][0].toFixed(1)} ${H-pad} Z`;
+  const drop=z[0]-Math.min(...z);
+  return `<div class="transect">
+    <div class="eyebrow">หน้าตัดตามทางน้ำไหล · ${(TRANSECT.len/1000)} กม. ไปทาง${dirName(p.aspect)}</div>
+    <svg class="tsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+         aria-label="หน้าตัดความสูงลงตามทางลาด ลด ${drop.toFixed(0)} เมตร">
+      <path d="${area}" fill="rgba(192,123,55,.16)"/>
+      <path d="${d}" fill="none" stroke="#C07B37" stroke-width="1.6"/>
+      <circle cx="${pts[0][0]}" cy="${pts[0][1]}" r="3" fill="#3FA9BC"/>
+    </svg>
+    <div class="hint mono" style="display:flex;justify-content:space-between">
+      <span>แปลง ${z[0].toFixed(0)} ม.</span>
+      <span>${drop>=0?'ลดลง':'สูงขึ้น'} ${Math.abs(drop).toFixed(0)} ม.</span>
+      <span>ปลาย ${z[z.length-1].toFixed(0)} ม.</span>
+    </div>
+  </div>`;
+}
+
+function verdict(p){
+  const v=[]; let cls='good';
+  if(p.rel<2){ cls='bad'; v.push('<b>อยู่ในจุดต่ำสุดของพื้นที่รอบตัว</b> น้ำจากรอบด้านไหลมารวมตรงนี้ เป็นตำแหน่งเสี่ยงน้ำท่วมขังสูงสุด') }
+  else if(p.rel<6){ cls='bad'; v.push(`<b>สูงกว่าที่ต่ำสุดในรัศมี 2.5 กม. เพียง ${p.rel.toFixed(0)} ม.</b> ถือว่าอยู่ระดับที่ราบน้ำท่วมถึง ต้องตรวจประวัติน้ำท่วมย้อนหลังก่อนตัดสินใจ`) }
+  else if(p.rel<15){ cls='mid'; v.push(`สูงกว่าที่ต่ำสุดรอบตัว ${p.rel.toFixed(0)} ม. — พ้นน้ำท่วมปกติ แต่ยังต้องดูว่าติดลำน้ำหรือไม่`) }
+  else v.push(`สูงกว่าที่ต่ำสุดรอบตัว ${p.rel.toFixed(0)} ม. — อยู่บนที่ดอน ความเสี่ยงน้ำท่วมจากพื้นที่โดยรอบต่ำ`);
+
+  if(p.slopeDeg<1.5) v.push('พื้นที่แทบราบ ระบายน้ำช้า ทิศทางไหลไม่ชัดเจน — ค่าทิศด้านลาดเชื่อถือได้น้อย');
+  else if(p.slopeDeg>=15){ if(cls==='good')cls='mid'; v.push(`ความชัน ${p.slopeDeg.toFixed(0)}° เกิน 35% — เสี่ยงดินถล่มและชะล้างหน้าดิน ปรับพื้นที่ยากและมีข้อจำกัดการใช้ประโยชน์`) }
+  else if(p.slopeDeg>=8) v.push(`ความชัน ${p.slopeDeg.toFixed(0)}° ระบายน้ำดี แต่ต้องวางแนวอนุรักษ์ดินและน้ำ`);
+  else v.push(`ความชัน ${p.slopeDeg.toFixed(1)}° ระบายน้ำได้พอสมควร`);
+
+  v.push(`น้ำผิวดินไหลลงทาง<b>${dirName(p.aspect)}</b> — สิ่งปลูกสร้างและทางระบายควรวางให้สอดคล้องกับทิศนี้`);
+  return `<div class="verdict ${cls}">${v.join('<br>')}</div>`;
+}
+
+function renderDetail(){
+  const D=$('#detail'), p=state.parcels.find(x=>x.id===state.active);
+  if(!p){ D.innerHTML=''; return }
+  if(p.err){ D.innerHTML=`<div class="pad"><div class="verdict bad">อ่านค่าความสูงไม่สำเร็จ: ${esc(p.err)}<br>ตรวจการเชื่อมต่ออินเทอร์เน็ตแล้วลบแปลงนี้เพื่อเพิ่มใหม่</div></div>`; return }
+  if(!p.ready){ D.innerHTML=`<div class="pad" style="color:var(--dim);font-size:12.5px"><span class="spin"></span> กำลังอ่านค่าความสูง 37 จุดรอบแปลง…</div>`; return }
+
+  let poiHtml='';
+  if(p.poiState==='loading') poiHtml=`<div class="pad"><div class="eyebrow">สิ่งอำนวยความสะดวก</div><div style="color:var(--dim);font-size:12.5px"><span class="spin"></span> กำลังค้นในรัศมี 50 กม. (อาจใช้เวลา 10–30 วินาที)</div></div>`;
+  else if(p.poiState==='err') poiHtml=`<div class="pad"><div class="verdict bad">ดึงข้อมูลสถานที่ไม่สำเร็จทุกเซิร์ฟเวอร์<br><span class="mono" style="font-size:10.5px;color:var(--dim)">${esc(p.poiErr||'')}</span><br><button class="ghost" style="margin-top:7px" onclick="window.__retry(${p.id})">ลองใหม่</button></div></div>`;
+  else if(p.poi){
+    const cnt=(arr,r)=>arr.filter(x=>x.dist<=r).length;
+    poiHtml=`<div class="pad">
+      <div class="eyebrow">สิ่งอำนวยความสะดวก</div>
+      <div class="tally">
+        ${RADII.map(r=>`<div><div class="r">${r} กม.</div>
+          <div class="c s">${cnt(p.poi.school,r)}</div>
+          <div class="c h">${cnt(p.poi.health,r)}</div></div>`).join('')}
+      </div>
+      <div class="hint mono" style="margin:-6px 0 12px;display:flex;gap:13px">
+        <span style="color:var(--contour)">■ สถานศึกษา</span><span style="color:var(--water)">■ สถานพยาบาล</span>
+      </div>
+      <div class="eyebrow">สถานศึกษาใกล้สุด</div>
+      ${p.poi.school.slice(0,4).map(s=>`<div class="poi-line"><span class="n">${esc(s.name)}</span><span class="d">${s.dist.toFixed(1)} กม.</span></div>`).join('')||'<div class="hint">ไม่พบในรัศมี 50 กม.</div>'}
+      <div class="eyebrow" style="margin-top:13px">สถานพยาบาลใกล้สุด</div>
+      ${p.poi.health.slice(0,4).map(s=>`<div class="poi-line"><span class="n">${esc(s.name)}</span><span class="d">${s.dist.toFixed(1)} กม.</span></div>`).join('')||'<div class="hint">ไม่พบในรัศมี 50 กม.</div>'}
+    </div>`;
+  } else {
+    poiHtml=`<div class="pad"><button class="ghost" onclick="window.__retry(${p.id})">ค้นหาโรงเรียน / สถานพยาบาล</button></div>`;
+  }
+
+  D.innerHTML=`
+    <div class="pad">
+      <div class="eyebrow">ภูมิประเทศ</div>
+      <div class="rose-block">
+        ${rose(p)}
+        <div class="readout">
+          <div class="ro"><span class="k">ความสูง</span><span class="v">${p.elev.toFixed(0)}<small>ม.รทก.</small></span></div>
+          <div class="ro"><span class="k">ความชัน</span><span class="v">${p.slopeDeg.toFixed(1)}<small>° / ${p.slopePct.toFixed(0)}%</small></span></div>
+          <div class="ro"><span class="k">ทิศน้ำไหล</span><span class="v" style="font-size:12.5px">${dirName(p.aspect)}<small>${p.aspect!=null?p.aspect.toFixed(0)+'°':''}</small></span></div>
+          <div class="ro"><span class="k">ความต่างระดับรอบตัว</span><span class="v">${p.relief.toFixed(0)}<small>ม.</small></span></div>
+        </div>
+      </div>
+      ${verdict(p)}
+      ${transectSvg(p)}
+    </div>
+    ${poiHtml}`;
+}
+window.__retry=id=>{const p=state.parcels.find(x=>x.id===id); if(p) fetchPOI(p)};
+
+/* ══════════════ RENDER: MAP ══════════════ */
+let poiMarkers=[];
+function renderMap(){
+  if(!map.isStyleLoaded()){ map.once('idle',renderMap); return }
+
+  // parcel markers
+  state.parcels.forEach((p,idx)=>{
+    if(!p.marker){
+      const el=document.createElement('div'); el.className='mk';
+      el.innerHTML=`<span></span>`;
+      el.onclick=ev=>{ev.stopPropagation(); state.active=p.id; render()};
+      p.marker=new maplibregl.Marker({element:el,anchor:'bottom'}).setLngLat([p.lon,p.lat]).addTo(map);
+    }
+    p.marker.getElement().classList.toggle('on',p.id===state.active);
+    p.marker.getElement().querySelector('span').textContent=idx+1;
+  });
+
+  // rings + flow arrow
+  const src=state.showAll?state.parcels:state.parcels.filter(p=>p.id===state.active);
+  const ring=[], flow=[];
+  src.forEach(p=>{
+    [...state.radii].sort((a,b)=>b-a).forEach(r=>{
+      ring.push(turf.circle([p.lon,p.lat],r,{steps:96,units:'kilometers',properties:{r}}));
+    });
+    if(p.ready&&p.aspect!=null){
+      const end=turf.destination(turf.point([p.lon,p.lat]),1.1,p.aspect,{units:'kilometers'});
+      flow.push(turf.lineString([[p.lon,p.lat],end.geometry.coordinates]));
+      const l=turf.destination(turf.point(end.geometry.coordinates),.3,p.aspect+150,{units:'kilometers'});
+      const r2=turf.destination(turf.point(end.geometry.coordinates),.3,p.aspect-150,{units:'kilometers'});
+      flow.push(turf.lineString([l.geometry.coordinates,end.geometry.coordinates,r2.geometry.coordinates]));
+    }
+  });
+  map.getSource('rings')?.setData(fc(ring));
+  map.getSource('flow')?.setData(fc(flow));
+
+  // POI markers (active parcel only, capped)
+  poiMarkers.forEach(m=>m.remove()); poiMarkers=[];
+  const ap=state.parcels.find(x=>x.id===state.active);
+  if(state.showPoi&&ap?.poi){
+    const maxR=Math.max(...state.radii,0);
+    const put=(arr,cls,label)=>arr.filter(x=>x.dist<=maxR).slice(0,320).forEach(x=>{
+      const el=document.createElement('div'); el.className='poi-mk '+cls;
+      const m=new maplibregl.Marker({element:el}).setLngLat([x.lon,x.lat])
+        .setPopup(new maplibregl.Popup({offset:9,closeButton:false})
+          .setHTML(`<b>${esc(x.name)}</b><br><span style="color:#8A968F">${label} · ${x.dist.toFixed(1)} กม.</span>`))
+        .addTo(map);
+      poiMarkers.push(m);
+    });
+    put(ap.poi.school,'s','สถานศึกษา');
+    put(ap.poi.health,'h','สถานพยาบาล');
+  }
+}
+
+/* ══════════════ RENDER: COMPARE TABLE ══════════════ */
+const COLS=[
+  {k:'id',   t:'#',        v:(p,i)=>`<span class="tnum">${i+1}</span>`, raw:(p,i)=>i},
+  {k:'name', t:'แปลง',      v:p=>esc(p.name||'แปลงที่ '+(state.parcels.indexOf(p)+1)), raw:p=>p.name||''},
+  {k:'elev', t:'สูง ม.',    v:p=>p.ready?p.elev.toFixed(0):'—', raw:p=>p.elev??-1e9},
+  {k:'slope',t:'ชัน °',     v:p=>p.ready?p.slopeDeg.toFixed(1):'—', raw:p=>p.slopeDeg??-1},
+  {k:'asp',  t:'น้ำไหลไป',  v:p=>p.ready?`<svg class="mini" width="15" height="15" viewBox="0 0 15 15">
+        <circle cx="7.5" cy="7.5" r="6.5" fill="none" stroke="#2B383F"/>
+        ${p.aspect!=null?`<line x1="7.5" y1="7.5" x2="${7.5+Math.cos((p.aspect-90)*Math.PI/180)*5.5}" y2="${7.5+Math.sin((p.aspect-90)*Math.PI/180)*5.5}" stroke="#3FA9BC" stroke-width="1.8" stroke-linecap="round"/>`:''}
+      </svg> ${dirName(p.aspect,true)}`:'—', raw:p=>p.aspect??-1},
+  {k:'rel',  t:'สูงกว่าที่ต่ำรอบตัว ม.', v:p=>p.ready?`<span style="color:${p.rel<6?'#D4664A':p.rel>15?'#74A05C':'#E4E0D4'}">${p.rel.toFixed(0)}</span>`:'—', raw:p=>p.rel??-1e9},
+  {k:'ns',   t:'รร.ใกล้สุด กม.', v:p=>p.poi?.school?.[0]?p.poi.school[0].dist.toFixed(1):'—', raw:p=>p.poi?.school?.[0]?.dist??1e9},
+  {k:'nh',   t:'พย.ใกล้สุด กม.', v:p=>p.poi?.health?.[0]?p.poi.health[0].dist.toFixed(1):'—', raw:p=>p.poi?.health?.[0]?.dist??1e9},
+  {k:'s15',  t:'รร.≤15', v:p=>p.poi?p.poi.school.filter(x=>x.dist<=15).length:'—', raw:p=>p.poi?p.poi.school.filter(x=>x.dist<=15).length:-1},
+  {k:'h15',  t:'พย.≤15', v:p=>p.poi?p.poi.health.filter(x=>x.dist<=15).length:'—', raw:p=>p.poi?p.poi.health.filter(x=>x.dist<=15).length:-1},
+  {k:'h30',  t:'พย.≤30', v:p=>p.poi?p.poi.health.filter(x=>x.dist<=30).length:'—', raw:p=>p.poi?p.poi.health.filter(x=>x.dist<=30).length:-1},
+  {k:'ll',   t:'พิกัด', v:p=>`${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`, raw:p=>p.lat}
+];
+
+function renderTable(){
+  const T=$('#cmp'), S=state.sort;
+  T.querySelector('thead').innerHTML='<tr>'+COLS.map(c=>
+    `<th data-k="${c.k}">${c.t}${S.key===c.k?` <span class="sar">${S.dir>0?'▲':'▼'}</span>`:''}</th>`).join('')+'</tr>';
+  const col=COLS.find(c=>c.k===S.key)||COLS[0];
+  const rows=state.parcels.map((p,i)=>({p,i}))
+    .sort((a,b)=>{
+      const x=col.raw(a.p,a.i), y=col.raw(b.p,b.i);
+      return (typeof x==='string'?x.localeCompare(y,'th'):x-y)*S.dir;
+    });
+  T.querySelector('tbody').innerHTML=rows.map(({p,i})=>
+    `<tr class="${p.id===state.active?'on':''}" data-id="${p.id}">`+
+     COLS.map(c=>`<td>${c.v(p,i)}</td>`).join('')+'</tr>').join('');
+
+  T.querySelectorAll('th').forEach(th=>th.onclick=()=>{
+    const k=th.dataset.k;
+    if(S.key===k) S.dir*=-1; else { S.key=k; S.dir=1 }
+    renderTable();
+  });
+  T.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>{
+    const p=state.parcels.find(x=>x.id===+tr.dataset.id);
+    state.active=p.id; render();
+    map.flyTo({center:[p.lon,p.lat],zoom:Math.max(map.getZoom(),11),duration:750});
+    if(!p.poi&&p.poiState!=='loading'&&state.showPoi) fetchPOI(p);
+  });
+}
+
+/* ══════════════ CONTROLS ══════════════ */
+$('#baseSeg').onclick=e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  $('#baseSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  ['sat','topo','street'].forEach(k=>
+    map.setLayoutProperty('l-'+k,'visibility',k===b.dataset.b?'visible':'none'));
+};
+$('#tgHill').onchange=e=>map.setLayoutProperty('l-hill','visibility',e.target.checked?'visible':'none');
+$('#tg3d').onchange=e=>{
+  if(e.target.checked){ map.setTerrain({source:'dem',exaggeration:1.5}); map.easeTo({pitch:62,duration:900}) }
+  else{ map.setTerrain(null); map.easeTo({pitch:0,duration:700}) }
+};
+$('#tgPoi').onchange=e=>{
+  state.showPoi=e.target.checked;
+  const ap=state.parcels.find(x=>x.id===state.active);
+  if(state.showPoi&&ap&&!ap.poi&&ap.poiState!=='loading') fetchPOI(ap); else renderMap();
+};
+$('#tgAll').onchange=e=>{state.showAll=e.target.checked; renderMap()};
+$('#radBtns').onclick=e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  const r=+b.dataset.r;
+  if(state.radii.has(r)) state.radii.delete(r); else state.radii.add(r);
+  b.classList.toggle('on',state.radii.has(r));
+  renderMap();
+};
+$('#dhandle').onclick=()=>$('#drawer').classList.toggle('open');
+
+$('#coordIn').addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key==='Enter') $('#btnAdd').click();
+});
+
+renderTable();
+</script>
+</body>
+</html>
