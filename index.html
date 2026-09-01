@@ -369,6 +369,7 @@ tr.on .tnum{background:var(--water)}
       <label class="tog"><input type="checkbox" id="tg3d"> ภูมิประเทศ 3 มิติ</label>
       <label class="tog"><input type="checkbox" id="tgPoi" checked> โรงเรียน / สถานพยาบาล</label>
       <label class="tog"><input type="checkbox" id="tgFlood"> พื้นที่น้ำท่วมซ้ำซาก (GISTDA)</label>
+      <label class="tog"><input type="checkbox" id="tgBankLand"> ที่ดินเปล่าธนาคารประกาศขาย</label>
       <label class="tog"><input type="checkbox" id="tgAll"> วงรัศมีทุกแปลง</label>
       <div class="ctl-t" style="margin-top:10px">รัศมี (กม.)</div>
       <div class="rads" id="radBtns">
@@ -418,6 +419,10 @@ const GISTDA_FLOOD_QUERY = 'https://gistdaportal.gistda.or.th/data/rest/services
 const GISTDA_FLOOD_TILES = 'https://gistdaportal.gistda.or.th/data/rest/services/FL_Flood/FL_RepeatedFlooding_GISTDA_50k_Y2005_Y2016/MapServer/tile/{z}/{y}/{x}';
 const GISTDA_FLOOD_TOTAL_YEARS = 12; // ปีที่มีข้อมูลครอบคลุม (2005–2016)
 
+// ที่ดินเปล่าที่ธนาคารประกาศขาย (NPA) — ไฟล์ข้อมูลแยกต่างหาก อัปเดตเป็นระยะโดยผู้ดูแลเว็บ
+// (ไม่มี API สาธารณะจากธนาคาร ข้อมูลนี้จึงดึงมาเก็บไว้เป็นไฟล์ JSON แทนการเรียกสดทุกครั้ง)
+const BANK_LAND_URL = './bank-npa-land.json';
+
 const state = {
   parcels: [], seq: 0, active: null,
   radii: new Set(RADII), showAll:false, showPoi:true,
@@ -440,7 +445,8 @@ const style = {
     floodhist:{type:'raster',tiles:[GISTDA_FLOOD_TILES],tileSize:256,maxzoom:19,
          attribution:'พื้นที่น้ำท่วมซ้ำซาก 2005–2016: GISTDA'},
     rings:{type:'geojson',data:fc([])},
-    flow:{type:'geojson',data:fc([])}
+    flow:{type:'geojson',data:fc([])},
+    bankland:{type:'geojson',data:fc([])}
   },
   layers:[
     {id:'l-sat',type:'raster',source:'sat',layout:{visibility:'visible'}},
@@ -449,6 +455,9 @@ const style = {
     {id:'l-hill',type:'hillshade',source:'dem',
      paint:{'hillshade-exaggeration':.42,'hillshade-shadow-color':'#08121A','hillshade-highlight-color':'#E8E2CE','hillshade-accent-color':'#1B2A2E'}},
     {id:'l-floodhist',type:'raster',source:'floodhist',layout:{visibility:'none'},paint:{'raster-opacity':.65}},
+    {id:'l-bankland',type:'circle',source:'bankland',layout:{visibility:'none'},
+     paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,2.4,10,5,16,9],
+            'circle-color':'#D9A441','circle-stroke-color':'#3A2F12','circle-stroke-width':1.2,'circle-opacity':.92}},
     {id:'l-ringfill',type:'fill',source:'rings',
      paint:{'fill-color':'#3FA9BC','fill-opacity':['interpolate',['linear'],['get','r'],15,.09,50,.03]}},
     {id:'l-ringline',type:'line',source:'rings',
@@ -1117,6 +1126,48 @@ $('#tg3d').onchange=e=>{
   else{ map.setTerrain(null); map.easeTo({pitch:0,duration:700}) }
 };
 $('#tgFlood').onchange=e=>map.setLayoutProperty('l-floodhist','visibility',e.target.checked?'visible':'none');
+
+/* ══════════════ ที่ดินเปล่าธนาคารประกาศขาย (NPA) ══════════════ */
+let bankLandLoaded=false, bankLandLoading=false;
+async function loadBankLand(){
+  if(bankLandLoaded||bankLandLoading) return;
+  bankLandLoading=true;
+  try{
+    const r=await fetch(BANK_LAND_URL,{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const gj=await r.json();
+    map.getSource('bankland')?.setData(gj);
+    bankLandLoaded=true;
+    const upd=gj.meta?.updated ? new Date(gj.meta.updated).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'}) : null;
+    toast(`โหลดที่ดินธนาคารประกาศขาย ${gj.meta?.count??gj.features.length} แปลง${upd?' (อัปเดตล่าสุด '+upd+')':''}`,4500);
+  }catch(err){
+    toast('โหลดข้อมูลที่ดินธนาคารประกาศขายไม่สำเร็จ ('+err.message+')',5000);
+  }finally{
+    bankLandLoading=false;
+  }
+}
+$('#tgBankLand').onchange=e=>{
+  map.setLayoutProperty('l-bankland','visibility',e.target.checked?'visible':'none');
+  if(e.target.checked) loadBankLand();
+};
+map.on('mouseenter','l-bankland',()=>map.getCanvas().style.cursor='pointer');
+map.on('mouseleave','l-bankland',()=>{ if(!state.pinMode) map.getCanvas().style.cursor='' });
+map.on('click','l-bankland',e=>{
+  const f=e.features[0]; if(!f) return;
+  const pr=f.properties;
+  const priceFmt=n=>n?Number(n).toLocaleString('th-TH')+' บาท':'—';
+  const upd=pr.updated?new Date(pr.updated).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'}):'—';
+  new maplibregl.Popup({offset:10,closeButton:true,maxWidth:'260px'})
+    .setLngLat(f.geometry.coordinates)
+    .setHTML(`<div class="poi-pop">
+      <b>${esc(pr.asset_type)} · ${esc(pr.bank)}</b><br>
+      <span style="color:#8A968F">${esc(pr.subdistrict||'')} ${esc(pr.district||'')} ${esc(pr.province||'')}</span>
+      <span class="t">${esc(pr.area||'')} · ราคาประกาศ ${priceFmt(pr.price)}${pr.price_promo&&pr.price_promo!==pr.price?' (ลดเหลือ '+priceFmt(pr.price_promo)+')':''}</span>
+      <span class="t" style="color:#8A968F">อัปเดต ${upd}</span>
+      <a href="${pr.url}" target="_blank" rel="noopener">ดูประกาศต้นทาง (GSB) ↗</a>
+    </div>`)
+    .addTo(map);
+});
 $('#tgPoi').onchange=e=>{
   state.showPoi=e.target.checked;
   const ap=state.parcels.find(x=>x.id===state.active);
