@@ -902,6 +902,7 @@ function floodHtml(p){
   if(p.floodState==='err') return `<div class="pad" style="padding-top:0"><div class="eyebrow">น้ำท่วมซ้ำซาก (GISTDA)</div><div class="verdict bad">ตรวจสอบไม่สำเร็จ<br><span class="mono" style="font-size:10.5px;color:var(--dim)">${esc(p.floodErr||'')}</span><br><button class="ghost" style="margin-top:7px" onclick="window.__retryFlood(${p.id})">ลองใหม่</button></div></div>`;
   if(!p.flood) return '';
   const f=p.flood;
+  const areaNum=Number(f.areaRai);
   if(!f.freq) return `<div class="pad" style="padding-top:0">
     <div class="eyebrow">น้ำท่วมซ้ำซาก (GISTDA 2005–2016)</div>
     <div class="verdict good">ไม่อยู่ในพื้นที่ที่ GISTDA บันทึกว่าเคยน้ำท่วมซ้ำซากช่วงปี 2005–2016</div>
@@ -912,7 +913,7 @@ function floodHtml(p){
     <div class="eyebrow">น้ำท่วมซ้ำซาก (GISTDA 2005–2016)</div>
     <div class="verdict ${cls}"><b>เคยน้ำท่วมซ้ำซาก ${f.freq} จาก ${GISTDA_FLOOD_TOTAL_YEARS} ปี</b> (2005–2016) ในบริเวณนี้
     ${loc?`<br>ตำแหน่ง: ${esc(loc)}`:''}
-    ${f.areaRai?`<br>ขนาดโซนน้ำท่วมซ้ำซากผืนนี้: ~${f.areaRai.toFixed(1)} ไร่`:''}</div>
+    ${!isNaN(areaNum)&&areaNum>0?`<br>ขนาดโซนน้ำท่วมซ้ำซากผืนนี้: ~${areaNum.toFixed(1)} ไร่`:''}</div>
   </div>`;
 }
 
