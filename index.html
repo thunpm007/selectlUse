@@ -290,6 +290,8 @@ button.ghost{background:transparent}
 }
 .poi-mk.s{background:var(--contour)}
 .poi-mk.h{background:var(--water)}
+.poi-mk.st{background:var(--forest)}
+.poi-mk.ml{background:var(--warn)}
 .poi-pop{font-family:'IBM Plex Sans Thai',sans-serif}
 .poi-pop .t{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8A968F;margin-top:4px;display:block}
 .poi-pop a{color:#3FA9BC;font-size:11.5px;display:inline-block;margin-top:5px}
@@ -433,7 +435,8 @@ tr.on .tnum{background:var(--water)}
       <div class="ctl-t">ชั้นข้อมูล</div>
       <label class="tog"><input type="checkbox" id="tgHill" checked> เงาภูเขา</label>
       <label class="tog"><input type="checkbox" id="tg3d"> ภูมิประเทศ 3 มิติ</label>
-      <label class="tog"><input type="checkbox" id="tgPoi" checked> โรงเรียน / สถานพยาบาล</label>
+      <label class="tog"><input type="checkbox" id="tgBuildings3d"> อาคาร 3 มิติ (รอบแปลงที่เลือก)</label>
+      <label class="tog"><input type="checkbox" id="tgPoi" checked> รร./รพ./ร้านสะดวกซื้อ/ห้างฯ</label>
       <label class="tog"><input type="checkbox" id="tgFlood"> พื้นที่น้ำท่วมซ้ำซาก (GISTDA)</label>
       <label class="tog"><input type="checkbox" id="tgBankLand"> ที่ดินเปล่าธนาคารประกาศขาย</label>
       <label class="tog"><input type="checkbox" id="tgAll"> วงรัศมีทุกแปลง</label>
@@ -473,12 +476,15 @@ const OVERPASS_MIRRORS = [
 const OVERPASS_TIMEOUT_MS = 25000;           // ตัดคำขอทิ้งถ้าเซิร์ฟเวอร์ไม่ตอบภายในเวลานี้ แล้วลองเซิร์ฟเวอร์ถัดไป
 const POI_TYPE_TH = {
   school:'โรงเรียน', college:'วิทยาลัย',
-  hospital:'โรงพยาบาล', clinic:'คลินิก', doctors:'คลินิกแพทย์', centre:'ศูนย์บริการสุขภาพ'
+  hospital:'โรงพยาบาล', clinic:'คลินิก', doctors:'คลินิกแพทย์', centre:'ศูนย์บริการสุขภาพ',
+  convenience:'ร้านสะดวกซื้อ', mall:'ห้างสรรพสินค้า', department_store:'ห้างสรรพสินค้า'
 };
+const STORE_MALL_RADIUS_KM = 15;             // รัศมีค้นหาร้านสะดวกซื้อ/ห้างสรรพสินค้า (คงที่ ไม่ผูกกับปุ่มเลือกรัศมี 15/30/50)
 const GRID_M     = 90;                       // Horn 3x3 spacing ≈ GLO-90 cell
 const RINGS      = [[1000,16],[2500,12]];    // [radius m, n samples]
 const TRANSECT   = {len:3000, n:31};
 const RADII      = [15,30,50];
+const BUILDINGS_RADIUS_M = 1500;             // รัศมีดึงอาคาร 3 มิติรอบแปลงที่เลือก (เมตร)
 
 // GISTDA — พื้นที่น้ำท่วมซ้ำซาก 2005–2016 (มาตราส่วน 1:50,000) จาก Open Data GISTDA ไม่ต้องใช้ API key
 const GISTDA_FLOOD_QUERY = 'https://gistdaportal.gistda.or.th/data/rest/services/FL_Flood/FL_RepeatedFlooding_GISTDA_50k_Y2005_Y2016/FeatureServer/0/query';
@@ -491,7 +497,7 @@ const BANK_LAND_URL = './bank-npa-land.json';
 
 const state = {
   parcels: [], seq: 0, active: null,
-  radii: new Set(RADII), showAll:false, showPoi:true,
+  radii: new Set(RADII), showAll:false, showPoi:true, showBuildings3d:false,
   sort:{key:'id', dir:1}, pinMode:false, poiFull:null
 };
 
@@ -512,7 +518,8 @@ const style = {
          attribution:'พื้นที่น้ำท่วมซ้ำซาก 2005–2016: GISTDA'},
     rings:{type:'geojson',data:fc([])},
     flow:{type:'geojson',data:fc([])},
-    bankland:{type:'geojson',data:fc([])}
+    bankland:{type:'geojson',data:fc([])},
+    buildings3d:{type:'geojson',data:fc([])}
   },
   layers:[
     {id:'l-sat',type:'raster',source:'sat',layout:{visibility:'visible'}},
@@ -521,6 +528,9 @@ const style = {
     {id:'l-hill',type:'hillshade',source:'dem',
      paint:{'hillshade-exaggeration':.42,'hillshade-shadow-color':'#08121A','hillshade-highlight-color':'#E8E2CE','hillshade-accent-color':'#1B2A2E'}},
     {id:'l-floodhist',type:'raster',source:'floodhist',layout:{visibility:'none'},paint:{'raster-opacity':.65}},
+    {id:'l-buildings3d',type:'fill-extrusion',source:'buildings3d',layout:{visibility:'none'},
+     paint:{'fill-extrusion-color':'#8FA6AD','fill-extrusion-height':['coalesce',['get','height'],6],
+            'fill-extrusion-base':0,'fill-extrusion-opacity':.85}},
     {id:'l-bankland',type:'circle',source:'bankland',layout:{visibility:'none'},
      paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,2.4,10,5,16,9],
             'circle-color':'#D9A441','circle-stroke-color':'#3A2F12','circle-stroke-width':1.2,'circle-opacity':.92}},
@@ -748,30 +758,91 @@ async function fetchPOI(p){
  nwr["amenity"="clinic"](around:50000,${p.lat},${p.lon});
  nwr["amenity"="doctors"](around:50000,${p.lat},${p.lon});
  nwr["healthcare"="centre"](around:50000,${p.lat},${p.lon});
+ nwr["shop"="convenience"](around:${STORE_MALL_RADIUS_KM*1000},${p.lat},${p.lon});
+ nwr["shop"="mall"](around:${STORE_MALL_RADIUS_KM*1000},${p.lat},${p.lon});
+ nwr["shop"="department_store"](around:${STORE_MALL_RADIUS_KM*1000},${p.lat},${p.lon});
 );
 out center 1200;`;
+  const nameFallback={school:'(สถานศึกษาไม่ระบุชื่อ)',health:'(สถานพยาบาลไม่ระบุชื่อ)',
+                      store:'(ร้านสะดวกซื้อไม่ระบุชื่อ)',mall:'(ห้างสรรพสินค้าไม่ระบุชื่อ)'};
   try{
     const j=await queryOverpass(Q);
     const from=turf.point([p.lon,p.lat]);
-    const out={school:[],health:[]};
+    const out={school:[],health:[],store:[],mall:[]};
     (j.elements||[]).forEach(el=>{
       const la=el.lat??el.center?.lat, lo=el.lon??el.center?.lon;
       if(la==null) return;
       const t=el.tags||{};
-      const kind=(t.amenity==='school'||t.amenity==='college')?'school':'health';
+      let kind;
+      if(t.amenity==='school'||t.amenity==='college') kind='school';
+      else if(t.amenity==='hospital'||t.amenity==='clinic'||t.amenity==='doctors'||t.healthcare==='centre') kind='health';
+      else if(t.shop==='convenience') kind='store';
+      else if(t.shop==='mall'||t.shop==='department_store') kind='mall';
+      else return;
       const dist=turf.distance(from,turf.point([lo,la]),{units:'kilometers'});
-      if(dist>50) return;
-      out[kind].push({name:t['name:th']||t.name||(kind==='school'?'(สถานศึกษาไม่ระบุชื่อ)':'(สถานพยาบาลไม่ระบุชื่อ)'),
-                      lat:la,lon:lo,dist,type:t.amenity||t.healthcare});
+      const maxDist=(kind==='store'||kind==='mall')?STORE_MALL_RADIUS_KM:50;
+      if(dist>maxDist) return;
+      out[kind].push({name:t['name:th']||t.name||nameFallback[kind],
+                      lat:la,lon:lo,dist,type:t.amenity||t.healthcare||t.shop});
     });
     out.school.sort((x,y)=>x.dist-y.dist);
     out.health.sort((x,y)=>x.dist-y.dist);
+    out.store.sort((x,y)=>x.dist-y.dist);
+    out.mall.sort((x,y)=>x.dist-y.dist);
     poiCache.set(key,out); p.poi=out; p.poiState='ok';
   }catch(err){
     p.poiState='err'; p.poiErr=err.message;
     toast('ดึงข้อมูลสถานที่ไม่สำเร็จทุกเซิร์ฟเวอร์ ('+err.message+') — ลองใหม่อีกครั้ง หรือเช็คว่าตัวบล็อกโฆษณา/ไฟร์วอลล์บล็อก overpass อยู่หรือไม่',6000);
   }
   render();
+}
+
+/* ══════════════ อาคาร 3 มิติ (OSM, รอบแปลงที่เลือก) ══════════════ */
+// ประมาณความสูงจาก tag ที่มี — ข้อมูลอาคารใน OSM ของไทยส่วนใหญ่ไม่มี height/levels จริง
+// จึงต้องเผื่อค่าเริ่มต้นไว้ (~2 ชั้น) กรณีไม่มีข้อมูลเลย ผลลัพธ์เป็นรูปทรงกล่องประมาณ ไม่ใช่โมเดลสมจริง
+function estimateBuildingHeight(tags){
+  if(tags.height){ const m=parseFloat(tags.height); if(!isNaN(m)&&m>0) return m; }
+  if(tags['building:height']){ const m=parseFloat(tags['building:height']); if(!isNaN(m)&&m>0) return m; }
+  const levels=tags['building:levels']||tags.levels;
+  if(levels){ const n=parseFloat(levels); if(!isNaN(n)&&n>0) return n*3.2; }
+  return 6;
+}
+
+const buildingsCache=new Map();
+let buildingsShownKey=null, buildingsLoading=false;
+
+async function fetchBuildings3D(p){
+  const key=p.lat.toFixed(3)+','+p.lon.toFixed(3);
+  if(buildingsShownKey===key) return; // แสดงของแปลงนี้อยู่แล้ว ไม่ต้องทำซ้ำ
+  if(buildingsCache.has(key)){
+    map.getSource('buildings3d')?.setData(fc(buildingsCache.get(key)));
+    buildingsShownKey=key;
+    return;
+  }
+  if(buildingsLoading) return;
+  buildingsLoading=true;
+  const Q=`[out:json][timeout:40];
+(
+ way["building"](around:${BUILDINGS_RADIUS_M},${p.lat},${p.lon});
+);
+out geom;`;
+  try{
+    const j=await queryOverpass(Q);
+    const feats=(j.elements||[]).filter(el=>el.type==='way'&&el.geometry&&el.geometry.length>=3).map(el=>{
+      const ring=el.geometry.map(pt=>[pt.lon,pt.lat]);
+      if(ring[0][0]!==ring[ring.length-1][0]||ring[0][1]!==ring[ring.length-1][1]) ring.push(ring[0]);
+      const t=el.tags||{};
+      return {type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},
+              properties:{height:estimateBuildingHeight(t), name:t['name:th']||t.name||''}};
+    });
+    buildingsCache.set(key,feats);
+    if(state.showBuildings3d){ map.getSource('buildings3d')?.setData(fc(feats)); buildingsShownKey=key; }
+    if(!feats.length) toast('ไม่พบข้อมูลอาคารจาก OpenStreetMap รอบแปลงนี้ (ข้อมูลอาคารใน OSM ยังไม่ครอบคลุมทุกพื้นที่ในไทย)',5000);
+  }catch(err){
+    toast('โหลดโมเดลอาคาร 3 มิติไม่สำเร็จ ('+err.message+')',5000);
+  }finally{
+    buildingsLoading=false;
+  }
 }
 
 /* ══════════════ น้ำท่วมซ้ำซาก (GISTDA) ══════════════ */
@@ -895,6 +966,12 @@ function render(){
   });
   L.querySelectorAll('[data-del]').forEach(b=>b.onclick=ev=>{ev.stopPropagation();delParcel(+b.dataset.del)});
 
+  if(state.showBuildings3d){
+    const ap=state.parcels.find(x=>x.id===state.active);
+    if(ap) fetchBuildings3D(ap);
+    else{ map.getSource('buildings3d')?.setData(fc([])); buildingsShownKey=null; }
+  }
+
   renderDetail(); renderMap(); renderTable();
 }
 
@@ -999,7 +1076,7 @@ function renderDetail(){
   if(!p.ready){ D.innerHTML=`${bankAnnouncementHtml(p)}<div class="pad" style="color:var(--dim);font-size:12.5px"><span class="spin"></span> กำลังอ่านค่าความสูง 37 จุดรอบแปลง…</div>`; return }
 
   let poiHtml='';
-  if(p.poiState==='loading') poiHtml=`<div class="pad"><div class="eyebrow">สิ่งอำนวยความสะดวก</div><div style="color:var(--dim);font-size:12.5px"><span class="spin"></span> กำลังค้นในรัศมี 50 กม. (อาจใช้เวลา 10–30 วินาที)</div></div>`;
+  if(p.poiState==='loading') poiHtml=`<div class="pad"><div class="eyebrow">สิ่งอำนวยความสะดวก</div><div style="color:var(--dim);font-size:12.5px"><span class="spin"></span> กำลังค้นโรงเรียน/รพ.ในรัศมี 50 กม. และร้านสะดวกซื้อ/ห้างฯในรัศมี ${STORE_MALL_RADIUS_KM} กม. (อาจใช้เวลา 10–30 วินาที)</div></div>`;
   else if(p.poiState==='err') poiHtml=`<div class="pad"><div class="verdict bad">ดึงข้อมูลสถานที่ไม่สำเร็จทุกเซิร์ฟเวอร์<br><span class="mono" style="font-size:10.5px;color:var(--dim)">${esc(p.poiErr||'')}</span><br><button class="ghost" style="margin-top:7px" onclick="window.__retry(${p.id})">ลองใหม่</button></div></div>`;
   else if(p.poi){
     const cnt=(arr,r)=>arr.filter(x=>x.dist<=r).length;
@@ -1025,17 +1102,24 @@ function renderDetail(){
           <div class="c h" data-r="${r}" data-k="health" style="cursor:pointer${state.poiFull?.r===r&&state.poiFull?.k==='health'?';text-decoration:underline':''}">${cnt(p.poi.health,r)}</div>
         </div>`).join('')}
       </div>
-      <div class="hint mono" style="margin:-6px 0 12px;display:flex;gap:13px">
+      <div class="hint mono" style="margin:-6px 0 12px;display:flex;gap:13px;flex-wrap:wrap">
         <span style="color:var(--contour)">■ สถานศึกษา</span><span style="color:var(--water)">■ สถานพยาบาล</span>
+        <span style="color:var(--forest)">■ ร้านสะดวกซื้อ</span><span style="color:var(--warn)">■ ห้างสรรพสินค้า</span>
       </div>
       <div class="eyebrow">สถานศึกษาใกล้สุด</div>
       ${p.poi.school.slice(0,4).map(line).join('')||'<div class="hint">ไม่พบในรัศมี 50 กม.</div>'}
       <div class="eyebrow" style="margin-top:13px">สถานพยาบาลใกล้สุด</div>
       ${p.poi.health.slice(0,4).map(line).join('')||'<div class="hint">ไม่พบในรัศมี 50 กม.</div>'}
+      <div class="eyebrow" style="margin-top:13px">ร้านสะดวกซื้อใกล้สุด</div>
+      <div class="hint" style="margin:-5px 0 6px">พบทั้งหมด ${p.poi.store.length} แห่งในรัศมี ${STORE_MALL_RADIUS_KM} กม.</div>
+      ${p.poi.store.slice(0,4).map(line).join('')||`<div class="hint">ไม่พบในรัศมี ${STORE_MALL_RADIUS_KM} กม.</div>`}
+      <div class="eyebrow" style="margin-top:13px">ห้างสรรพสินค้าใกล้สุด</div>
+      <div class="hint" style="margin:-5px 0 6px">พบทั้งหมด ${p.poi.mall.length} แห่งในรัศมี ${STORE_MALL_RADIUS_KM} กม.</div>
+      ${p.poi.mall.slice(0,4).map(line).join('')||`<div class="hint">ไม่พบในรัศมี ${STORE_MALL_RADIUS_KM} กม.</div>`}
       ${fullListHtml}
     </div>`;
   } else {
-    poiHtml=`<div class="pad"><button class="ghost" onclick="window.__retry(${p.id})">ค้นหาโรงเรียน / สถานพยาบาล</button></div>`;
+    poiHtml=`<div class="pad"><button class="ghost" onclick="window.__retry(${p.id})">ค้นหาโรงเรียน/รพ./ร้านสะดวกซื้อ/ห้างฯ</button></div>`;
   }
 
   D.innerHTML=`
@@ -1112,7 +1196,7 @@ function renderMap(){
   const ap=state.parcels.find(x=>x.id===state.active);
   if(state.showPoi&&ap?.poi){
     const maxR=Math.max(...state.radii,0);
-    const put=(arr,cls,label)=>arr.filter(x=>x.dist<=maxR).slice(0,320).forEach(x=>{
+    const put=(arr,cls,label,cap)=>arr.filter(x=>x.dist<=cap).slice(0,320).forEach(x=>{
       const el=document.createElement('div'); el.className='poi-mk '+cls;
       const typeTh=POI_TYPE_TH[x.type]||label;
       const gmaps=`https://www.google.com/maps?q=${x.lat.toFixed(6)},${x.lon.toFixed(6)}`;
@@ -1127,8 +1211,13 @@ function renderMap(){
         .addTo(map);
       poiMarkers.push(m);
     });
-    put(ap.poi.school,'s','สถานศึกษา');
-    put(ap.poi.health,'h','สถานพยาบาล');
+    put(ap.poi.school,'s','สถานศึกษา',maxR);
+    put(ap.poi.health,'h','สถานพยาบาล',maxR);
+    // ร้านสะดวกซื้อ/ห้างฯ ค้นเฉพาะรัศมี 15 กม. คงที่ — โชว์เมื่อปุ่มรัศมี 15 กม. เปิดอยู่เท่านั้น (ผูกกับ #radBtns เหมือนกัน)
+    if(state.radii.has(STORE_MALL_RADIUS_KM)){
+      put(ap.poi.store,'st','ร้านสะดวกซื้อ',STORE_MALL_RADIUS_KM);
+      put(ap.poi.mall,'ml','ห้างสรรพสินค้า',STORE_MALL_RADIUS_KM);
+    }
   }
 }
 
@@ -1148,6 +1237,8 @@ const COLS=[
   {k:'s15',  t:'รร.≤15', v:p=>p.poi?p.poi.school.filter(x=>x.dist<=15).length:'—', raw:p=>p.poi?p.poi.school.filter(x=>x.dist<=15).length:-1},
   {k:'h15',  t:'พย.≤15', v:p=>p.poi?p.poi.health.filter(x=>x.dist<=15).length:'—', raw:p=>p.poi?p.poi.health.filter(x=>x.dist<=15).length:-1},
   {k:'h30',  t:'พย.≤30', v:p=>p.poi?p.poi.health.filter(x=>x.dist<=30).length:'—', raw:p=>p.poi?p.poi.health.filter(x=>x.dist<=30).length:-1},
+  {k:'store15', t:`ร้านสะดวกซื้อ≤${STORE_MALL_RADIUS_KM}`, v:p=>p.poi?p.poi.store.length:'—', raw:p=>p.poi?p.poi.store.length:-1},
+  {k:'mall15',  t:`ห้างฯ≤${STORE_MALL_RADIUS_KM}`, v:p=>p.poi?p.poi.mall.length:'—', raw:p=>p.poi?p.poi.mall.length:-1},
   {k:'flood',t:'ท่วมซ้ำซาก (ปี)', v:p=>p.flood?`<span style="color:${p.flood.freq>0?'#D4664A':'#74A05C'}">${p.flood.freq}/${GISTDA_FLOOD_TOTAL_YEARS}</span>`:(p.floodState==='err'?'—':'…'), raw:p=>p.flood?p.flood.freq:-1},
   {k:'ll',   t:'พิกัด', v:p=>`${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`, raw:p=>p.lat}
 ];
@@ -1190,9 +1281,21 @@ $('#tgHill').onchange=e=>map.setLayoutProperty('l-hill','visibility',e.target.ch
 $('#tg3d').onchange=e=>{
   // ที่ดินไทยส่วนใหญ่ค่อนข้างราบ ต้องดันความสูงมาก ๆ ถึงจะเห็นความต่างของภูมิประเทศชัด
   if(e.target.checked){ map.setTerrain({source:'dem',exaggeration:4.5}); map.easeTo({pitch:68,duration:900}) }
-  else{ map.setTerrain(null); map.easeTo({pitch:0,duration:700}) }
+  else{ map.setTerrain(null); if(!$('#tgBuildings3d').checked) map.easeTo({pitch:0,duration:700}) }
 };
 $('#tgFlood').onchange=e=>map.setLayoutProperty('l-floodhist','visibility',e.target.checked?'visible':'none');
+$('#tgBuildings3d').onchange=e=>{
+  state.showBuildings3d=e.target.checked;
+  map.setLayoutProperty('l-buildings3d','visibility',e.target.checked?'visible':'none');
+  if(e.target.checked){
+    if(map.getPitch()===0) map.easeTo({pitch:55,duration:700}); // เอียงกล้องให้เห็นทรงอาคาร
+    const ap=state.parcels.find(x=>x.id===state.active);
+    if(ap) fetchBuildings3D(ap);
+    else toast('ปักหรือเลือกแปลงก่อน เพื่อโหลดอาคาร 3 มิติรอบแปลงนั้น (รัศมี '+(BUILDINGS_RADIUS_M/1000)+' กม.)',4500);
+  }else{
+    if(!$('#tg3d').checked) map.easeTo({pitch:0,duration:600});
+  }
+};
 
 /* ══════════════ ที่ดินเปล่าธนาคารประกาศขาย (NPA) ══════════════ */
 let bankLandLoaded=false, bankLandLoading=false, bankLandFeatures=[];
