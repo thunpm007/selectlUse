@@ -188,7 +188,9 @@ button.ghost{background:transparent}
   border:1px solid var(--line);border-radius:4px;backdrop-filter:blur(9px);
   padding:9px 11px;
 }
-#layerCtl{top:12px;right:12px;width:186px}
+#layerCtl{top:12px;right:12px;width:224px;max-height:92vh;overflow-y:auto}
+#layerCtl::-webkit-scrollbar{width:7px}
+#layerCtl::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
 #pinBtn{
   top:12px;left:12px;cursor:pointer;user-select:none;
   display:flex;align-items:center;gap:8px;max-width:250px;
@@ -217,6 +219,32 @@ button.ghost{background:transparent}
 .rads{display:flex;gap:5px;margin-top:5px}
 .rads button{flex:1;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:5px 0}
 .rads button.on{background:var(--water);border-color:var(--water);color:#06171B;font-weight:600}
+
+/* ---------- bank land search ---------- */
+.banksearch{margin:9px 0 2px;padding-top:9px;border-top:1px dashed var(--line)}
+.banksearch select{
+  width:100%;background:var(--ink);color:var(--paper);border:1px solid var(--line);
+  border-radius:3px;padding:6px 7px;font-family:'IBM Plex Sans Thai',sans-serif;font-size:12px;
+  cursor:pointer;
+}
+.banksearch select:focus{outline:none;border-color:var(--water)}
+.banksearch select:disabled{opacity:.45;cursor:not-allowed}
+.bs-meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dimmer);margin:7px 0 5px;line-height:1.6}
+.bs-list{max-height:260px;overflow-y:auto;margin-top:2px}
+.bs-list::-webkit-scrollbar{width:7px}
+.bs-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
+.bs-item{
+  padding:7px 8px;border:1px solid var(--line);border-radius:3px;margin-bottom:5px;cursor:pointer;
+  transition:background .12s,border-color .12s;
+}
+.bs-item:hover{background:var(--panel3);border-color:var(--dimmer)}
+.bs-item .bk{
+  display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;
+  padding:1px 5px;border-radius:2px;background:var(--panel3);color:#D9A441;margin-right:5px;
+  letter-spacing:.02em;
+}
+.bs-item .loc{font-size:11.5px;color:var(--paper);line-height:1.4;display:inline}
+.bs-item .meta2{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dim);margin-top:4px}
 
 /* markers */
 .mk{
@@ -298,7 +326,7 @@ tr.on .tnum{background:var(--water)}
 @media (max-width:880px){
   #shell{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   #rail{border-right:none;border-bottom:1px solid var(--line);max-height:52vh}
-  #layerCtl{width:160px;top:8px;right:8px;padding:7px 9px}
+  #layerCtl{width:190px;top:8px;right:8px;padding:7px 9px;max-height:70vh}
   #detail{max-height:none}
 }
 </style>
@@ -370,6 +398,13 @@ tr.on .tnum{background:var(--water)}
       <label class="tog"><input type="checkbox" id="tgPoi" checked> โรงเรียน / สถานพยาบาล</label>
       <label class="tog"><input type="checkbox" id="tgFlood"> พื้นที่น้ำท่วมซ้ำซาก (GISTDA)</label>
       <label class="tog"><input type="checkbox" id="tgBankLand"> ที่ดินเปล่าธนาคารประกาศขาย</label>
+      <div class="banksearch">
+        <select id="bankProvinceSel">
+          <option value="">— ค้นหาแปลงขาย ตามจังหวัด —</option>
+        </select>
+        <div class="bs-meta" id="bsMeta"></div>
+        <div class="bs-list" id="bsList"></div>
+      </div>
       <label class="tog"><input type="checkbox" id="tgAll"> วงรัศมีทุกแปลง</label>
       <div class="ctl-t" style="margin-top:10px">รัศมี (กม.)</div>
       <div class="rads" id="radBtns">
@@ -1128,24 +1163,97 @@ $('#tg3d').onchange=e=>{
 $('#tgFlood').onchange=e=>map.setLayoutProperty('l-floodhist','visibility',e.target.checked?'visible':'none');
 
 /* ══════════════ ที่ดินเปล่าธนาคารประกาศขาย (NPA) ══════════════ */
-let bankLandLoaded=false, bankLandLoading=false;
+let bankLandLoaded=false, bankLandLoading=false, bankLandFeatures=[];
+const priceFmt=n=>n?Number(n).toLocaleString('th-TH')+' บาท':'—';
+
 async function loadBankLand(){
   if(bankLandLoaded||bankLandLoading) return;
   bankLandLoading=true;
+  $('#bankProvinceSel').disabled=true;
   try{
     const r=await fetch(BANK_LAND_URL,{cache:'no-store'});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const gj=await r.json();
     map.getSource('bankland')?.setData(gj);
+    bankLandFeatures=gj.features||[];
     bankLandLoaded=true;
+    populateBankProvinces();
     const upd=gj.meta?.updated ? new Date(gj.meta.updated).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'}) : null;
     toast(`โหลดที่ดินธนาคารประกาศขาย ${gj.meta?.count??gj.features.length} แปลง${upd?' (อัปเดตล่าสุด '+upd+')':''}`,4500);
   }catch(err){
     toast('โหลดข้อมูลที่ดินธนาคารประกาศขายไม่สำเร็จ ('+err.message+')',5000);
   }finally{
     bankLandLoading=false;
+    $('#bankProvinceSel').disabled=false;
   }
 }
+
+function populateBankProvinces(){
+  const counts=new Map();
+  for(const f of bankLandFeatures){
+    const p=f.properties.province||'';
+    if(!p) continue;
+    counts.set(p,(counts.get(p)||0)+1);
+  }
+  const provinces=[...counts.keys()].sort((a,b)=>a.localeCompare(b,'th'));
+  const sel=$('#bankProvinceSel');
+  const keep=sel.value;
+  sel.innerHTML='<option value="">— ค้นหาแปลงขาย ตามจังหวัด —</option>'+
+    provinces.map(p=>`<option value="${esc(p)}">${esc(p)} (${counts.get(p)})</option>`).join('');
+  sel.value=keep&&provinces.includes(keep)?keep:'';
+}
+
+function bankPopupHTML(pr){
+  const upd=pr.updated?new Date(pr.updated).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'}):'—';
+  return `<div class="poi-pop">
+      <b>${esc(pr.asset_type)} · ${esc(pr.bank)}</b><br>
+      <span style="color:#8A968F">${esc(pr.subdistrict||'')} ${esc(pr.district||'')} ${esc(pr.province||'')}</span>
+      <span class="t">${esc(pr.area||'')} · ราคาประกาศ ${priceFmt(pr.price)}${pr.price_promo&&pr.price_promo!==pr.price?' (ลดเหลือ '+priceFmt(pr.price_promo)+')':''}</span>
+      <span class="t" style="color:#8A968F">อัปเดต ${upd}</span>
+      <a href="${pr.url}" target="_blank" rel="noopener">ดูประกาศต้นทาง${pr.bank_short?' ('+esc(pr.bank_short)+')':''} ↗</a>
+    </div>`;
+}
+function showBankPopup(f){
+  new maplibregl.Popup({offset:10,closeButton:true,maxWidth:'260px'})
+    .setLngLat(f.geometry.coordinates)
+    .setHTML(bankPopupHTML(f.properties))
+    .addTo(map);
+}
+
+function renderBankSearchResults(){
+  const province=$('#bankProvinceSel').value;
+  const list=$('#bsList'), meta=$('#bsMeta');
+  if(!province){ list.innerHTML=''; meta.textContent=''; return; }
+  const matches=bankLandFeatures.filter(f=>f.properties.province===province);
+  const CAP=150;
+  meta.textContent=matches.length>CAP
+    ? `พบ ${matches.length} แปลง (แสดง ${CAP} รายการแรก)`
+    : `พบ ${matches.length} แปลง`;
+  list.innerHTML=matches.slice(0,CAP).map((f,i)=>{
+    const pr=f.properties;
+    return `<div class="bs-item" data-idx="${bankLandFeatures.indexOf(f)}">
+      <span class="bk">${esc(pr.bank_short||'')}</span><span class="loc">${esc(pr.subdistrict||'')} ${esc(pr.district||'')}</span>
+      <div class="meta2">${esc(pr.area||'')} · ${priceFmt(pr.price)}</div>
+    </div>`;
+  }).join('');
+}
+
+$('#bankProvinceSel').onchange=async()=>{
+  const province=$('#bankProvinceSel').value;
+  if(!province) return renderBankSearchResults();
+  if(!bankLandLoaded) await loadBankLand();
+  if(!$('#tgBankLand').checked){
+    $('#tgBankLand').checked=true;
+    map.setLayoutProperty('l-bankland','visibility','visible');
+  }
+  renderBankSearchResults();
+};
+$('#bsList').onclick=e=>{
+  const item=e.target.closest('.bs-item'); if(!item) return;
+  const f=bankLandFeatures[+item.dataset.idx]; if(!f) return;
+  map.flyTo({center:f.geometry.coordinates,zoom:16,duration:900});
+  showBankPopup(f);
+};
 $('#tgBankLand').onchange=e=>{
   map.setLayoutProperty('l-bankland','visibility',e.target.checked?'visible':'none');
   if(e.target.checked) loadBankLand();
@@ -1154,19 +1262,7 @@ map.on('mouseenter','l-bankland',()=>map.getCanvas().style.cursor='pointer');
 map.on('mouseleave','l-bankland',()=>{ if(!state.pinMode) map.getCanvas().style.cursor='' });
 map.on('click','l-bankland',e=>{
   const f=e.features[0]; if(!f) return;
-  const pr=f.properties;
-  const priceFmt=n=>n?Number(n).toLocaleString('th-TH')+' บาท':'—';
-  const upd=pr.updated?new Date(pr.updated).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'}):'—';
-  new maplibregl.Popup({offset:10,closeButton:true,maxWidth:'260px'})
-    .setLngLat(f.geometry.coordinates)
-    .setHTML(`<div class="poi-pop">
-      <b>${esc(pr.asset_type)} · ${esc(pr.bank)}</b><br>
-      <span style="color:#8A968F">${esc(pr.subdistrict||'')} ${esc(pr.district||'')} ${esc(pr.province||'')}</span>
-      <span class="t">${esc(pr.area||'')} · ราคาประกาศ ${priceFmt(pr.price)}${pr.price_promo&&pr.price_promo!==pr.price?' (ลดเหลือ '+priceFmt(pr.price_promo)+')':''}</span>
-      <span class="t" style="color:#8A968F">อัปเดต ${upd}</span>
-      <a href="${pr.url}" target="_blank" rel="noopener">ดูประกาศต้นทาง (GSB) ↗</a>
-    </div>`)
-    .addTo(map);
+  showBankPopup(f);
 });
 $('#tgPoi').onchange=e=>{
   state.showPoi=e.target.checked;
