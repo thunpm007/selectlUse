@@ -860,11 +860,11 @@ function render(){
   $('#dcount').textContent=P.length;
 
   L.innerHTML=P.map((p,idx)=>{
-    let chips='';
-    if(p.err) chips=`<span class="chip lo">อ่านค่าไม่ได้</span>`;
-    else if(!p.ready) chips=`<span class="chip"><span class="spin"></span> กำลังวิเคราะห์</span>`;
+    let chips=p.bankInfo?`<span class="chip" style="color:#D9A441">${esc(p.bankInfo.bank_short||'')}</span>`:'';
+    if(p.err) chips+=`<span class="chip lo">อ่านค่าไม่ได้</span>`;
+    else if(!p.ready) chips+=`<span class="chip"><span class="spin"></span> กำลังวิเคราะห์</span>`;
     else{
-      chips=`<span class="chip el">${p.elev.toFixed(0)} ม.รทก.</span>
+      chips+=`<span class="chip el">${p.elev.toFixed(0)} ม.รทก.</span>
              <span class="chip sl">${p.slopeDeg.toFixed(1)}°</span>
              <span class="chip">น้ำไหลไป ${dirName(p.aspect,true)}</span>
              <span class="chip ${p.rel<3?'lo':p.rel>15?'hi':''}">สูงกว่าที่ต่ำรอบตัว ${p.rel.toFixed(0)} ม.</span>`;
@@ -995,8 +995,8 @@ function floodHtml(p){
 function renderDetail(){
   const D=$('#detail'), p=state.parcels.find(x=>x.id===state.active);
   if(!p){ D.innerHTML=''; return }
-  if(p.err){ D.innerHTML=`<div class="pad"><div class="verdict bad">อ่านค่าความสูงไม่สำเร็จ: ${esc(p.err)}<br>ตรวจการเชื่อมต่ออินเทอร์เน็ตแล้วลบแปลงนี้เพื่อเพิ่มใหม่</div></div>`; return }
-  if(!p.ready){ D.innerHTML=`<div class="pad" style="color:var(--dim);font-size:12.5px"><span class="spin"></span> กำลังอ่านค่าความสูง 37 จุดรอบแปลง…</div>`; return }
+  if(p.err){ D.innerHTML=`${bankAnnouncementHtml(p)}<div class="pad"><div class="verdict bad">อ่านค่าความสูงไม่สำเร็จ: ${esc(p.err)}<br>ตรวจการเชื่อมต่ออินเทอร์เน็ตแล้วลบแปลงนี้เพื่อเพิ่มใหม่</div></div>`; return }
+  if(!p.ready){ D.innerHTML=`${bankAnnouncementHtml(p)}<div class="pad" style="color:var(--dim);font-size:12.5px"><span class="spin"></span> กำลังอ่านค่าความสูง 37 จุดรอบแปลง…</div>`; return }
 
   let poiHtml='';
   if(p.poiState==='loading') poiHtml=`<div class="pad"><div class="eyebrow">สิ่งอำนวยความสะดวก</div><div style="color:var(--dim);font-size:12.5px"><span class="spin"></span> กำลังค้นในรัศมี 50 กม. (อาจใช้เวลา 10–30 วินาที)</div></div>`;
@@ -1039,6 +1039,7 @@ function renderDetail(){
   }
 
   D.innerHTML=`
+    ${bankAnnouncementHtml(p)}
     <div class="pad">
       <div class="eyebrow">ภูมิประเทศ</div>
       <div class="rose-block">
@@ -1196,6 +1197,7 @@ $('#tgFlood').onchange=e=>map.setLayoutProperty('l-floodhist','visibility',e.tar
 /* ══════════════ ที่ดินเปล่าธนาคารประกาศขาย (NPA) ══════════════ */
 let bankLandLoaded=false, bankLandLoading=false, bankLandFeatures=[];
 let bankProvinceCounts=new Map(); // province -> count
+let bankShownProvince=null; // จังหวัดที่กำลังแสดงจุดอยู่บนแผนที่ (null = ยังไม่เลือก ไม่แสดงจุดใดๆ)
 let bsnMode='suggest'; // 'suggest' | 'results'
 let bsnActiveProvince='';
 let bsnHi=-1; // highlighted index within current dropdown item list
@@ -1208,12 +1210,13 @@ async function loadBankLand(){
     const r=await fetch(BANK_LAND_URL,{cache:'no-store'});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const gj=await r.json();
-    map.getSource('bankland')?.setData(gj);
+    // หมายเหตุ: ไม่ setData เต็มชุดขึ้นแผนที่ตรงนี้ — แสดงเฉพาะจังหวัดที่เลือกผ่าน
+    // updateBankLandSource() เท่านั้น เพื่อไม่ให้จุดทั้งประเทศแสดงพร้อมกัน
     bankLandFeatures=gj.features||[];
     bankLandLoaded=true;
     computeBankProvinceCounts();
     const upd=gj.meta?.updated ? new Date(gj.meta.updated).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'}) : null;
-    toast(`โหลดที่ดินธนาคารประกาศขาย ${gj.meta?.count??gj.features.length} แปลง${upd?' (อัปเดตล่าสุด '+upd+')':''}`,4500);
+    toast(`โหลดข้อมูลที่ดินธนาคารประกาศขาย ${gj.meta?.count??gj.features.length} แปลงทั่วประเทศ — พิมพ์ชื่อจังหวัดในช่องค้นหาเพื่อแสดงบนแผนที่${upd?' (อัปเดตล่าสุด '+upd+')':''}`,5000);
   }catch(err){
     toast('โหลดข้อมูลที่ดินธนาคารประกาศขายไม่สำเร็จ ('+err.message+')',5000);
   }finally{
@@ -1231,21 +1234,13 @@ function computeBankProvinceCounts(){
   bankProvinceCounts=new Map([...counts.entries()].sort((a,b)=>a[0].localeCompare(b[0],'th')));
 }
 
-function bankPopupHTML(pr){
-  const upd=pr.updated?new Date(pr.updated).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'}):'—';
-  return `<div class="poi-pop">
-      <b>${esc(pr.asset_type)} · ${esc(pr.bank)}</b><br>
-      <span style="color:#8A968F">${esc(pr.subdistrict||'')} ${esc(pr.district||'')} ${esc(pr.province||'')}</span>
-      <span class="t">${esc(pr.area||'')} · ราคาประกาศ ${priceFmt(pr.price)}${pr.price_promo&&pr.price_promo!==pr.price?' (ลดเหลือ '+priceFmt(pr.price_promo)+')':''}</span>
-      <span class="t" style="color:#8A968F">อัปเดต ${upd}</span>
-      <a href="${pr.url}" target="_blank" rel="noopener">ดูประกาศต้นทาง${pr.bank_short?' ('+esc(pr.bank_short)+')':''} ↗</a>
-    </div>`;
-}
-function showBankPopup(f){
-  new maplibregl.Popup({offset:10,closeButton:true,maxWidth:'260px'})
-    .setLngLat(f.geometry.coordinates)
-    .setHTML(bankPopupHTML(f.properties))
-    .addTo(map);
+// แสดงเฉพาะจุดของจังหวัดที่เลือกบนแผนที่ (ไม่ใช่ทั้งประเทศ) — เรียกทุกครั้งที่เลือก/เปลี่ยนจังหวัด
+function updateBankLandSource(province){
+  bankShownProvince=province||null;
+  const filtered=bankShownProvince
+    ? bankLandFeatures.filter(f=>f.properties.province===bankShownProvince)
+    : [];
+  map.getSource('bankland')?.setData(fc(filtered));
 }
 
 /* ---- ช่องค้นหา nav กลางเว็บ: autocomplete ตามจังหวัด ---- */
@@ -1310,7 +1305,45 @@ async function bsnSelectProvince(province){
     $('#tgBankLand').checked=true;
     map.setLayoutProperty('l-bankland','visibility','visible');
   }
+  updateBankLandSource(province); // แสดงเฉพาะจุดของจังหวัดนี้บนแผนที่ ไม่ใช่ทั้งประเทศ
   renderResultsFor(province);
+}
+
+/* ---- คลิกแปลงที่ดินธนาคาร = ปักหมุดวิเคราะห์เต็มรูปแบบ (ภูมิประเทศ+รัศมีสถานที่+น้ำท่วมซ้ำซาก)
+   เหมือนกับพิกัดแปลงที่ผู้ใช้ปักเอง ใช้ pipeline เดียวกัน (addParcel) ---- */
+function addBankParcel(f){
+  const pr=f.properties;
+  const [lon,lat]=f.geometry.coordinates;
+  const bankId=(pr.bank_short||pr.bank||'')+'|'+(pr.id||lon+','+lat);
+  const existing=state.parcels.find(x=>x.bankId===bankId);
+  if(existing){
+    state.active=existing.id; render();
+    if(!existing.poi&&existing.poiState!=='loading'&&state.showPoi) fetchPOI(existing);
+    return existing;
+  }
+  const label=[pr.asset_type||'ที่ดินเปล่า',pr.bank_short||pr.bank||''].filter(Boolean).join(' · ')
+    +' — '+[pr.subdistrict,pr.district,pr.province].filter(Boolean).join(' ');
+  addParcel(lat,lon,label,'bankland');
+  // addParcel เป็น async แต่ push+set active ทำงานแบบ synchronous ก่อนถึง await แรกข้างใน
+  // จึงอ่าน state.active ต่อได้ทันทีเพื่อแปะข้อมูลประกาศธนาคารเข้ากับแปลงที่เพิ่งสร้าง
+  const p=state.parcels.find(x=>x.id===state.active);
+  if(p){ p.bankId=bankId; p.bankInfo=pr; render(); }
+  return p;
+}
+
+function bankAnnouncementHtml(p){
+  const pr=p.bankInfo; if(!pr) return '';
+  const upd=pr.updated?new Date(pr.updated).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'}):'—';
+  return `<div class="pad" style="padding-bottom:0">
+    <div class="eyebrow">ประกาศขายจากธนาคาร</div>
+    <div class="verdict" style="border-left-color:#D9A441">
+      <b>${esc(pr.asset_type||'ที่ดินเปล่า')} · ${esc(pr.bank||pr.bank_short||'')}</b><br>
+      <span style="color:var(--dim)">${esc([pr.subdistrict,pr.district,pr.province].filter(Boolean).join(' '))}</span><br>
+      ${pr.area?esc(pr.area)+' · ':''}ราคาประกาศ ${priceFmt(pr.price)}${pr.price_promo&&pr.price_promo!==pr.price?' (ลดเหลือ '+priceFmt(pr.price_promo)+')':''}<br>
+      <span style="color:var(--dim)">อัปเดต ${upd}</span><br>
+      <a href="${pr.url}" target="_blank" rel="noopener">ดูประกาศต้นทาง${pr.bank_short?' ('+esc(pr.bank_short)+')':''} ↗</a>
+    </div>
+  </div>`;
 }
 
 bsnInput.addEventListener('input',async()=>{
@@ -1361,8 +1394,8 @@ bsnDrop.onclick=e=>{
   const ritem=e.target.closest('.bsn-ritem');
   if(ritem){
     const f=bankLandFeatures[+ritem.dataset.idx]; if(!f) return;
+    addBankParcel(f);
     map.flyTo({center:f.geometry.coordinates,zoom:16,duration:900});
-    showBankPopup(f);
     bsnClose();
   }
 };
@@ -1374,15 +1407,19 @@ document.addEventListener('click',e=>{
   if(path.length?!path.includes(bsnNav):!bsnNav.contains(e.target)) bsnClose();
 });
 
-$('#tgBankLand').onchange=e=>{
+$('#tgBankLand').onchange=async e=>{
   map.setLayoutProperty('l-bankland','visibility',e.target.checked?'visible':'none');
-  if(e.target.checked) loadBankLand();
+  if(e.target.checked){
+    if(!bankLandLoaded) await loadBankLand();
+    if(bankShownProvince) updateBankLandSource(bankShownProvince); // คืนจุดของจังหวัดที่เลือกไว้ก่อนหน้า
+    else toast('พิมพ์ชื่อจังหวัดในช่องค้นหาด้านบนเพื่อแสดงแปลงที่ดินธนาคารบนแผนที่',4500);
+  }
 };
 map.on('mouseenter','l-bankland',()=>map.getCanvas().style.cursor='pointer');
 map.on('mouseleave','l-bankland',()=>{ if(!state.pinMode) map.getCanvas().style.cursor='' });
 map.on('click','l-bankland',e=>{
   const f=e.features[0]; if(!f) return;
-  showBankPopup(f);
+  addBankParcel(f);
 });
 $('#tgPoi').onchange=e=>{
   state.showPoi=e.target.checked;
