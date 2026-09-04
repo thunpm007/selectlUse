@@ -220,31 +220,58 @@ button.ghost{background:transparent}
 .rads button{flex:1;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:5px 0}
 .rads button.on{background:var(--water);border-color:var(--water);color:#06171B;font-weight:600}
 
-/* ---------- bank land search ---------- */
-.banksearch{margin:9px 0 2px;padding-top:9px;border-top:1px dashed var(--line)}
-.banksearch select{
-  width:100%;background:var(--ink);color:var(--paper);border:1px solid var(--line);
-  border-radius:3px;padding:6px 7px;font-family:'IBM Plex Sans Thai',sans-serif;font-size:12px;
-  cursor:pointer;
+/* ---------- bank land search nav ---------- */
+#bankSearchNav{
+  top:12px;left:50%;transform:translateX(-50%);
+  width:360px;max-width:calc(100vw - 24px);padding:0;
 }
-.banksearch select:focus{outline:none;border-color:var(--water)}
-.banksearch select:disabled{opacity:.45;cursor:not-allowed}
-.bs-meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dimmer);margin:7px 0 5px;line-height:1.6}
-.bs-list{max-height:260px;overflow-y:auto;margin-top:2px}
-.bs-list::-webkit-scrollbar{width:7px}
-.bs-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
-.bs-item{
-  padding:7px 8px;border:1px solid var(--line);border-radius:3px;margin-bottom:5px;cursor:pointer;
-  transition:background .12s,border-color .12s;
+.bsn-inputwrap{display:flex;align-items:center;gap:8px;padding:10px 13px}
+.bsn-icon{flex:none;opacity:.8}
+#bankSearchInput{
+  flex:1;min-width:0;background:transparent;color:var(--paper);border:none;
+  font-family:'IBM Plex Sans Thai',sans-serif;font-size:13px;
 }
-.bs-item:hover{background:var(--panel3);border-color:var(--dimmer)}
-.bs-item .bk{
+#bankSearchInput:focus{outline:none}
+#bankSearchInput::placeholder{color:var(--dimmer)}
+.bsn-clear{
+  flex:none;background:none;border:none;padding:0 2px;font-size:13px;color:var(--dimmer);
+  cursor:pointer;line-height:1;
+}
+.bsn-clear:hover{color:var(--warn);background:none}
+.bsn-dropdown{
+  display:none;max-height:min(420px,70vh);overflow-y:auto;
+  border-top:1px solid var(--line);
+}
+.bsn-dropdown.show{display:block}
+.bsn-dropdown::-webkit-scrollbar{width:7px}
+.bsn-dropdown::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
+.bsn-empty{padding:16px 13px;text-align:center;color:var(--dimmer);font-size:12px}
+.bsn-sitem{
+  padding:8px 13px;cursor:pointer;font-size:12.5px;display:flex;justify-content:space-between;
+  align-items:center;gap:8px;
+}
+.bsn-sitem:hover,.bsn-sitem.hi{background:var(--panel3)}
+.bsn-sitem .cnt{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--dimmer);flex:none}
+.bsn-back{
+  padding:9px 13px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--water);border-bottom:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center;gap:8px;position:sticky;top:0;
+  background:rgba(15,22,26,.97);
+}
+.bsn-back:hover{background:var(--panel3)}
+.bsn-back .n{color:var(--dimmer);text-transform:none;letter-spacing:0;font-size:11px}
+.bsn-ritem{
+  padding:9px 13px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .12s;
+}
+.bsn-ritem:last-child{border-bottom:none}
+.bsn-ritem:hover{background:var(--panel3)}
+.bsn-ritem .bk{
   display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;
   padding:1px 5px;border-radius:2px;background:var(--panel3);color:#D9A441;margin-right:5px;
   letter-spacing:.02em;
 }
-.bs-item .loc{font-size:11.5px;color:var(--paper);line-height:1.4;display:inline}
-.bs-item .meta2{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dim);margin-top:4px}
+.bsn-ritem .loc{font-size:11.5px;color:var(--paper);line-height:1.4}
+.bsn-ritem .meta2{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dim);margin-top:4px}
 
 /* markers */
 .mk{
@@ -385,6 +412,17 @@ tr.on .tnum{background:var(--water)}
       </svg>
     </button>
 
+    <div class="mapctl" id="bankSearchNav">
+      <div class="bsn-inputwrap">
+        <svg class="bsn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8A968F" stroke-width="2.2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.2" y2="16.2"/>
+        </svg>
+        <input type="text" id="bankSearchInput" placeholder="ค้นหาที่ดินธนาคารประกาศขาย ตามจังหวัด…" autocomplete="off">
+        <button class="bsn-clear" id="bankSearchClear" type="button" aria-label="ล้างการค้นหา" hidden>✕</button>
+      </div>
+      <div class="bsn-dropdown" id="bankDropdown"></div>
+    </div>
+
     <div class="mapctl" id="layerCtl">
       <div class="ctl-t">แผนที่ฐาน</div>
       <div class="seg" id="baseSeg">
@@ -398,13 +436,6 @@ tr.on .tnum{background:var(--water)}
       <label class="tog"><input type="checkbox" id="tgPoi" checked> โรงเรียน / สถานพยาบาล</label>
       <label class="tog"><input type="checkbox" id="tgFlood"> พื้นที่น้ำท่วมซ้ำซาก (GISTDA)</label>
       <label class="tog"><input type="checkbox" id="tgBankLand"> ที่ดินเปล่าธนาคารประกาศขาย</label>
-      <div class="banksearch">
-        <select id="bankProvinceSel">
-          <option value="">— ค้นหาแปลงขาย ตามจังหวัด —</option>
-        </select>
-        <div class="bs-meta" id="bsMeta"></div>
-        <div class="bs-list" id="bsList"></div>
-      </div>
       <label class="tog"><input type="checkbox" id="tgAll"> วงรัศมีทุกแปลง</label>
       <div class="ctl-t" style="margin-top:10px">รัศมี (กม.)</div>
       <div class="rads" id="radBtns">
@@ -1164,12 +1195,15 @@ $('#tgFlood').onchange=e=>map.setLayoutProperty('l-floodhist','visibility',e.tar
 
 /* ══════════════ ที่ดินเปล่าธนาคารประกาศขาย (NPA) ══════════════ */
 let bankLandLoaded=false, bankLandLoading=false, bankLandFeatures=[];
+let bankProvinceCounts=new Map(); // province -> count
+let bsnMode='suggest'; // 'suggest' | 'results'
+let bsnActiveProvince='';
+let bsnHi=-1; // highlighted index within current dropdown item list
 const priceFmt=n=>n?Number(n).toLocaleString('th-TH')+' บาท':'—';
 
 async function loadBankLand(){
   if(bankLandLoaded||bankLandLoading) return;
   bankLandLoading=true;
-  $('#bankProvinceSel').disabled=true;
   try{
     const r=await fetch(BANK_LAND_URL,{cache:'no-store'});
     if(!r.ok) throw new Error('HTTP '+r.status);
@@ -1177,30 +1211,24 @@ async function loadBankLand(){
     map.getSource('bankland')?.setData(gj);
     bankLandFeatures=gj.features||[];
     bankLandLoaded=true;
-    populateBankProvinces();
+    computeBankProvinceCounts();
     const upd=gj.meta?.updated ? new Date(gj.meta.updated).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'}) : null;
     toast(`โหลดที่ดินธนาคารประกาศขาย ${gj.meta?.count??gj.features.length} แปลง${upd?' (อัปเดตล่าสุด '+upd+')':''}`,4500);
   }catch(err){
     toast('โหลดข้อมูลที่ดินธนาคารประกาศขายไม่สำเร็จ ('+err.message+')',5000);
   }finally{
     bankLandLoading=false;
-    $('#bankProvinceSel').disabled=false;
   }
 }
 
-function populateBankProvinces(){
+function computeBankProvinceCounts(){
   const counts=new Map();
   for(const f of bankLandFeatures){
     const p=f.properties.province||'';
     if(!p) continue;
     counts.set(p,(counts.get(p)||0)+1);
   }
-  const provinces=[...counts.keys()].sort((a,b)=>a.localeCompare(b,'th'));
-  const sel=$('#bankProvinceSel');
-  const keep=sel.value;
-  sel.innerHTML='<option value="">— ค้นหาแปลงขาย ตามจังหวัด —</option>'+
-    provinces.map(p=>`<option value="${esc(p)}">${esc(p)} (${counts.get(p)})</option>`).join('');
-  sel.value=keep&&provinces.includes(keep)?keep:'';
+  bankProvinceCounts=new Map([...counts.entries()].sort((a,b)=>a[0].localeCompare(b[0],'th')));
 }
 
 function bankPopupHTML(pr){
@@ -1220,40 +1248,132 @@ function showBankPopup(f){
     .addTo(map);
 }
 
-function renderBankSearchResults(){
-  const province=$('#bankProvinceSel').value;
-  const list=$('#bsList'), meta=$('#bsMeta');
-  if(!province){ list.innerHTML=''; meta.textContent=''; return; }
-  const matches=bankLandFeatures.filter(f=>f.properties.province===province);
-  const CAP=150;
-  meta.textContent=matches.length>CAP
-    ? `พบ ${matches.length} แปลง (แสดง ${CAP} รายการแรก)`
-    : `พบ ${matches.length} แปลง`;
-  list.innerHTML=matches.slice(0,CAP).map((f,i)=>{
-    const pr=f.properties;
-    return `<div class="bs-item" data-idx="${bankLandFeatures.indexOf(f)}">
-      <span class="bk">${esc(pr.bank_short||'')}</span><span class="loc">${esc(pr.subdistrict||'')} ${esc(pr.district||'')}</span>
-      <div class="meta2">${esc(pr.area||'')} · ${priceFmt(pr.price)}</div>
-    </div>`;
-  }).join('');
+/* ---- ช่องค้นหา nav กลางเว็บ: autocomplete ตามจังหวัด ---- */
+const bsnInput=$('#bankSearchInput'), bsnNav=$('#bankSearchNav'), bsnDrop=$('#bankDropdown'), bsnClear=$('#bankSearchClear');
+
+function bsnOpen(){ bsnDrop.classList.add('show'); }
+function bsnClose(){ bsnDrop.classList.remove('show'); bsnHi=-1; }
+
+function bsnItems(){
+  return [...bsnDrop.querySelectorAll('.bsn-sitem,.bsn-ritem')];
+}
+function bsnSetHi(i){
+  const items=bsnItems();
+  items.forEach(el=>el.classList.remove('hi'));
+  if(!items.length){ bsnHi=-1; return; }
+  bsnHi=(i+items.length)%items.length;
+  items[bsnHi].classList.add('hi');
+  items[bsnHi].scrollIntoView({block:'nearest'});
 }
 
-$('#bankProvinceSel').onchange=async()=>{
-  const province=$('#bankProvinceSel').value;
-  if(!province) return renderBankSearchResults();
+function renderSuggestions(query){
+  bsnMode='suggest';
+  const q=(query||'').trim();
+  const provinces=[...bankProvinceCounts.keys()];
+  const matches=(q?provinces.filter(p=>p.includes(q)):provinces).slice(0,30);
+  if(!matches.length){
+    bsnDrop.innerHTML=`<div class="bsn-empty">${q?'ไม่พบจังหวัดที่ตรงกับ “'+esc(q)+'”':'ยังไม่มีข้อมูลที่ดินธนาคาร'}</div>`;
+  }else{
+    bsnDrop.innerHTML=matches.map(p=>
+      `<div class="bsn-sitem" data-province="${esc(p)}"><span>${esc(p)}</span><span class="cnt">${bankProvinceCounts.get(p)} แปลง</span></div>`
+    ).join('');
+  }
+  bsnHi=-1;
+  bsnOpen();
+}
+
+function renderResultsFor(province){
+  bsnMode='results';
+  bsnActiveProvince=province;
+  const matches=bankLandFeatures.filter(f=>f.properties.province===province);
+  const CAP=150;
+  const head=`<div class="bsn-back" data-back="1"><span>← ${esc(province)}</span><span class="n">${matches.length>CAP?`พบ ${matches.length} แปลง (แสดง ${CAP})`:`พบ ${matches.length} แปลง`}</span></div>`;
+  const body=matches.length
+    ? matches.slice(0,CAP).map((f,i)=>{
+        const pr=f.properties;
+        return `<div class="bsn-ritem" data-idx="${bankLandFeatures.indexOf(f)}">
+          <span class="bk">${esc(pr.bank_short||'')}</span><span class="loc">${esc(pr.subdistrict||'')} ${esc(pr.district||'')}</span>
+          <div class="meta2">${esc(pr.area||'')} · ${priceFmt(pr.price)}</div>
+        </div>`;
+      }).join('')
+    : `<div class="bsn-empty">ไม่พบแปลงขายในจังหวัดนี้</div>`;
+  bsnDrop.innerHTML=head+body;
+  bsnHi=-1;
+  bsnOpen();
+}
+
+async function bsnSelectProvince(province){
+  bsnInput.value=province;
+  bsnClear.hidden=false;
   if(!bankLandLoaded) await loadBankLand();
   if(!$('#tgBankLand').checked){
     $('#tgBankLand').checked=true;
     map.setLayoutProperty('l-bankland','visibility','visible');
   }
-  renderBankSearchResults();
+  renderResultsFor(province);
+}
+
+bsnInput.addEventListener('input',async()=>{
+  const v=bsnInput.value;
+  bsnClear.hidden=!v;
+  if(!bankLandLoaded) await loadBankLand();
+  renderSuggestions(v);
+});
+bsnInput.addEventListener('focus',async()=>{
+  if(!bankLandLoaded) await loadBankLand();
+  if(bsnMode==='results'&&bsnActiveProvince) renderResultsFor(bsnActiveProvince);
+  else renderSuggestions(bsnInput.value);
+});
+bsnInput.addEventListener('keydown',e=>{
+  if(!bsnDrop.classList.contains('show')){
+    if(e.key==='ArrowDown'){ renderSuggestions(bsnInput.value); e.preventDefault(); }
+    return;
+  }
+  if(e.key==='ArrowDown'){ bsnSetHi(bsnHi+1); e.preventDefault(); }
+  else if(e.key==='ArrowUp'){ bsnSetHi(bsnHi-1); e.preventDefault(); }
+  else if(e.key==='Enter'){
+    e.preventDefault();
+    const items=bsnItems();
+    const target=bsnHi>=0&&items[bsnHi]?items[bsnHi]:items[0];
+    if(target) target.click();
+    else if(bsnMode==='suggest'){
+      // no exact hi, try exact-match province name
+      const v=bsnInput.value.trim();
+      if(bankProvinceCounts.has(v)) bsnSelectProvince(v);
+    }
+  }else if(e.key==='Escape'){
+    bsnClose();
+    bsnInput.blur();
+  }
+});
+bsnClear.onclick=()=>{
+  bsnInput.value='';
+  bsnClear.hidden=true;
+  bsnActiveProvince='';
+  renderSuggestions('');
+  bsnInput.focus();
 };
-$('#bsList').onclick=e=>{
-  const item=e.target.closest('.bs-item'); if(!item) return;
-  const f=bankLandFeatures[+item.dataset.idx]; if(!f) return;
-  map.flyTo({center:f.geometry.coordinates,zoom:16,duration:900});
-  showBankPopup(f);
+bsnDrop.onclick=e=>{
+  const back=e.target.closest('.bsn-back');
+  if(back){ renderSuggestions(bsnInput.value); return; }
+  const sitem=e.target.closest('.bsn-sitem');
+  if(sitem){ bsnSelectProvince(sitem.dataset.province); return; }
+  const ritem=e.target.closest('.bsn-ritem');
+  if(ritem){
+    const f=bankLandFeatures[+ritem.dataset.idx]; if(!f) return;
+    map.flyTo({center:f.geometry.coordinates,zoom:16,duration:900});
+    showBankPopup(f);
+    bsnClose();
+  }
 };
+document.addEventListener('click',e=>{
+  // ใช้ composedPath แทน contains(e.target) เพราะ innerHTML ของ dropdown ถูกแทนที่
+  // (ตอนเปลี่ยนจาก suggestion -> results) ก่อนที่ event จะ bubble มาถึง document ทำให้
+  // e.target หลุดออกจาก DOM ไปแล้วและ contains() จะคืนค่า false ผิดพลาด
+  const path=e.composedPath?e.composedPath():[];
+  if(path.length?!path.includes(bsnNav):!bsnNav.contains(e.target)) bsnClose();
+});
+
 $('#tgBankLand').onchange=e=>{
   map.setLayoutProperty('l-bankland','visibility',e.target.checked?'visible':'none');
   if(e.target.checked) loadBankLand();
