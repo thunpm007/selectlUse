@@ -9,9 +9,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-<link href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" integrity="sha256-V2sIX92Uh6ZaGSFTKMHghsB85b9toJtmazgG09AI2uk=" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js" integrity="sha256-vpYzxNhw4m+zfxz+XFp3GBZnEUAD6hYgeseFDY2ordE=" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js" integrity="sha256-0A8+j/io+cED2tYcL9S7WBQ+FASq398J4pttsaLeCj8=" crossorigin="anonymous"></script>
 
 <style>
 :root{
@@ -1444,7 +1444,7 @@ function bankAnnouncementHtml(p){
       <span style="color:var(--dim)">${esc([pr.subdistrict,pr.district,pr.province].filter(Boolean).join(' '))}</span><br>
       ${pr.area?esc(pr.area)+' · ':''}ราคาประกาศ ${priceFmt(pr.price)}${pr.price_promo&&pr.price_promo!==pr.price?' (ลดเหลือ '+priceFmt(pr.price_promo)+')':''}<br>
       <span style="color:var(--dim)">อัปเดต ${upd}</span><br>
-      <a href="${pr.url}" target="_blank" rel="noopener">ดูประกาศต้นทาง${pr.bank_short?' ('+esc(pr.bank_short)+')':''} ↗</a>
+      <a href="${esc(pr.url)}" target="_blank" rel="noopener">ดูประกาศต้นทาง${pr.bank_short?' ('+esc(pr.bank_short)+')':''} ↗</a>
     </div>
   </div>`;
 }
