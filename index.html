@@ -1279,8 +1279,11 @@ $('#baseSeg').onclick=e=>{
 };
 $('#tgHill').onchange=e=>map.setLayoutProperty('l-hill','visibility',e.target.checked?'visible':'none');
 $('#tg3d').onchange=e=>{
-  // ที่ดินไทยส่วนใหญ่ค่อนข้างราบ ต้องดันความสูงมาก ๆ ถึงจะเห็นความต่างของภูมิประเทศชัด
-  if(e.target.checked){ map.setTerrain({source:'dem',exaggeration:4.5}); map.easeTo({pitch:68,duration:900}) }
+  // ที่ดินไทยส่วนใหญ่ค่อนข้างราบ เดิมดัน exaggeration สูงมาก (4.5) เพื่อให้เห็นความต่างของภูมิประเทศชัด
+  // แต่ค่าที่สูงขนาดนั้นจะขยาย noise เล็กๆ ของไทล์ DEM (โดยเฉพาะตอนซูมออกกว้างๆ ที่ MapLibre ใช้ไทล์ความละเอียดต่ำ)
+  // ให้กลายเป็นภูเขาปลอมเป็นหย่อมๆ ทั่วพื้นที่ราบ (เช่นกรุงเทพฯ) — ลดลงมาที่ 1.8 ให้ยังเห็น relief ของพื้นที่จริงชัดอยู่
+  // แต่ไม่ขยาย noise จนกลายเป็นภูเขาหลอกแบบนั้น
+  if(e.target.checked){ map.setTerrain({source:'dem',exaggeration:1.8}); map.easeTo({pitch:68,duration:900}) }
   else{ map.setTerrain(null); if(!$('#tgBuildings3d').checked) map.easeTo({pitch:0,duration:700}) }
 };
 $('#tgFlood').onchange=e=>map.setLayoutProperty('l-floodhist','visibility',e.target.checked?'visible':'none');
